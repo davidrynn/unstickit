@@ -282,13 +282,94 @@ That spec should define:
 
 ---
 
-## Open Questions for the Spec Phase
+## Resolved Decisions
 
-1. Should the app expose blocker types to the user or keep them internal?
-2. Should the fallback smaller step always be shown or only on demand?
-3. Should saved sessions support edit-and-regenerate?
-4. What is the minimum supported Apple Intelligence capability for MVP?
-5. Do we want a single-session-only MVP first, before saved history?
+1. **Blocker types** — Internal by default. Exposed on demand via disclosure tap on each blocker.
+2. **Fallback smaller step** — Shown on demand only, when user taps "I'm still stuck."
+3. **Edit-and-regenerate** — Re-run from scratch only. User can tap a past session and tap "Try again" to re-run the full loop with the same brain dump. No partial regeneration for MVP.
+4. **Minimum Apple Intelligence** — iOS 18.1+, Apple Intelligence enabled, A17 Pro or later (iPhone 15 Pro / iPhone 16+). Show a clear "Apple Intelligence required" screen if device doesn't qualify. No cloud API fallback for MVP.
+5. **Sessions in MVP** — Yes, included. Save completed sessions (brain dump + next step), list view, tap to view. No editing.
+
+---
+
+## AI Output Schema
+
+### Stage 1 — Extraction
+
+```swift
+@Generable
+struct ExtractionResult {
+    /// If false, skip reflection screen and show clarificationPrompt inline on Screen 1
+    let isActionable: Bool
+
+    /// Shown inline on Screen 1 if isActionable == false
+    let clarificationPrompt: String?
+
+    /// Only valid if isActionable == true
+    let goalSummary: String
+    let blockers: [Blocker]
+    let frictionSummary: String
+}
+
+@Generable
+struct Blocker {
+    let description: String   // shown to user
+    let type: BlockerType     // internal, revealed on demand
+}
+
+@Generable
+enum BlockerType: String, Generable {
+    case practical       // missing info, resources, skills
+    case informational   // unclear path or criteria
+    case emotional       // fear, avoidance, overwhelm
+}
+```
+
+### Stage 2 — Clarification
+
+Input: `ExtractionResult` + optional previous Q&A pair (if second question)
+
+```swift
+@Generable
+struct ClarificationResult {
+    let question: String   // shown to user
+    let intent: String     // internal — what ambiguity this resolves
+}
+```
+
+App runs Stage 2 up to twice. Second invocation includes the first Q&A in the prompt context.
+
+### Stage 3 — Next Step Generation
+
+Input: `ExtractionResult` + all `ClarificationResult` Q&A pairs
+
+```swift
+@Generable
+struct NextStepResult {
+    let nextStep: String      // primary output, shown on Screen 4
+    let fallbackStep: String  // shown only when user taps "I'm still stuck"
+    // reasoning discarded after generation, not stored
+}
+```
+
+### Stage Flow
+
+```
+BrainDump (String)
+    │
+    ▼ Stage 1
+ExtractionResult
+    │
+    ├─ isActionable == false → show clarificationPrompt on Screen 1 → user adds more → re-run Stage 1
+    │
+    └─ isActionable == true
+            │
+            ▼ Stage 2 (×1–2)
+        ClarificationResult(s)
+            │
+            ▼ Stage 3
+        NextStepResult
+```
 
 ---
 
