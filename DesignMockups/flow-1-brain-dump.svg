@@ -1,0 +1,63 @@
+<svg width="945" height="1679" viewBox="0 0 945 1679" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg { fill: #fbfbfc; }
+      .title { font: 700 42px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #111111; }
+      .body { font: 400 36px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #111111; }
+      .muted { font: 400 30px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #8e8e93; }
+      .small { font: 500 26px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #8e8e93; }
+      .button { font: 700 36px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: white; }
+      .tabActive { font: 600 24px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #0a8cff; }
+      .tabIdle { font: 600 24px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #8e8e93; }
+      .badge { font: 700 24px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #ffffff; }
+      .time { font: 700 39px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #050505; }
+    </style>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="945" height="1679" rx="48"/>
+
+  <text class="time" x="116" y="83">6:27</text>
+  <rect x="320" y="25" width="306" height="94" rx="47" fill="#000"/>
+  <circle cx="695" cy="77" r="4" fill="#c7c7cc"/>
+  <circle cx="708" cy="77" r="4" fill="#c7c7cc"/>
+  <circle cx="721" cy="77" r="4" fill="#c7c7cc"/>
+  <path d="M748 65c22-18 54-18 76 0" fill="none" stroke="#000" stroke-width="8" stroke-linecap="round"/>
+  <path d="M760 78c15-11 36-11 51 0" fill="none" stroke="#000" stroke-width="8" stroke-linecap="round"/>
+  <rect x="811" y="57" width="52" height="28" rx="8" fill="none" stroke="#111" stroke-width="4"/>
+  <rect x="817" y="62" width="40" height="18" rx="5" fill="#111"/>
+
+  <text x="472" y="300" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="70" font-weight="500" fill="#171717">Unstick</text>
+
+  <text class="title" x="54" y="430">What are you stuck on?</text>
+  <text class="muted" x="54" y="482">Dump the mess. I will turn it into one step.</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="54" y="540" width="837" height="560" rx="26" fill="#ffffff"/>
+    <rect x="80" y="566" width="785" height="508" rx="15" fill="#ffffff" stroke="#e5e5ea" stroke-width="2"/>
+    <text class="body" x="108" y="627">I don't feel like working on my app - every</text>
+    <text class="body" x="108" y="684">time I know I should I just don't. It's close to</text>
+    <text class="body" x="108" y="741">being done, but I can't get the AI tools to fix</text>
+    <text class="body" x="108" y="798">bugs or work well with the latest SwiftUI best</text>
+    <text class="body" x="108" y="855">practices.</text>
+    <text class="small" x="735" y="1040">174/500</text>
+  </g>
+
+  <rect x="54" y="1180" width="837" height="126" rx="26" fill="#0a8cff"/>
+  <text class="button" x="472" y="1257" text-anchor="middle">Find my next step</text>
+
+  <!-- Bottom tab bar -->
+  <line x1="0" y1="1520" x2="945" y2="1520" stroke="#e5e5ea" stroke-width="2"/>
+
+  <!-- Unstick tab (active) -->
+  <path d="M300 1568l-30 38h26l-6 34 32-42h-26z" fill="#0a8cff"/>
+  <text class="tabActive" x="315" y="1672" text-anchor="middle">Unstick</text>
+
+  <!-- Saved tab (idle) with badge -->
+  <path d="M615 1560h44a8 8 0 0 1 8 8v54l-30-20-30 20v-54a8 8 0 0 1 8-8z" fill="none" stroke="#8e8e93" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="678" cy="1556" r="20" fill="#ff3b30"/>
+  <text class="badge" x="678" y="1565" text-anchor="middle">1</text>
+  <text class="tabIdle" x="637" y="1672" text-anchor="middle">Saved</text>
+</svg>

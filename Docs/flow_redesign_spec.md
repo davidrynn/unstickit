@@ -1,0 +1,742 @@
+# Unstickit — Flow Redesign Spec
+
+## Status
+**Draft** — proposed replacement for the current Reflection + Clarification flow
+
+**Date:** 2026-06-15
+
+---
+
+## 0. Naming
+
+**Unstickit** is the Xcode project / repository name. **Unstick** is the user-facing product
+name shown in-app and in all copy. Both are intentional; do not "fix" one to match the other.
+
+## 1. Product Intent
+
+The core Unstickit moment is:
+
+> The user dumps the mess, and the app turns it into one doable next step.
+
+The brain dump is already useful because it lets the user externalize what feels tangled.
+The app should then add value by reflecting just enough to build trust, asking one focused
+choice, and producing a small action that is easier to start than avoid.
+
+This redesign should make the app feel less like it is asking the user to review an AI report
+and more like it is calmly helping them move.
+
+---
+
+## 2. Problem With Current Flow
+
+The current post-dump validation screen is helpful but too dense.
+
+It currently shows several overlapping interpretations:
+
+- **Your goal**
+- **What might be blocking you**
+- **What might be making this hard**
+- **Something I noticed**
+- **Does this sound right?**
+
+These are individually valuable, but together they create a scrollable review task. That is
+especially costly for users who are already overwhelmed, avoidant, or unsure where to start.
+
+The redesign should preserve validation while removing the report-like feeling.
+
+---
+
+## 3. Recommended New Flow
+
+### High-Level Flow
+
+1. **Brain Dump**
+2. **Loading**
+3. **Reflection + Choice**
+4. **Loading**
+5. **One Next Step**
+
+This replaces the current separate Reflection and Clarification screens with one combined
+screen.
+
+### Flow Principle
+
+Validation should fit on one screen.
+
+If the user has to scroll to validate what the AI understood, the AI said too much.
+
+---
+
+## 4. Navigation Structure
+
+### Primary Navigation
+
+Use a bottom tab bar instead of a large **Recent steps** tile on the brain dump screen.
+
+Recommended tabs:
+
+- **Unstick**
+- **Saved**
+
+The **Unstick** tab is the primary flow. The **Saved** tab contains intentionally saved steps
+only (see §13). Recent-but-unsaved steps are out of scope for MVP.
+
+### Why Move Recent Steps To A Tab
+
+The current **Recent steps** tile competes with the primary job of the first screen. The user
+came to dump what they are stuck on, but the first large interactive object is navigation to
+past steps.
+
+A bottom tab bar keeps saved steps accessible without making them part of the active getting
+unstuck flow.
+
+### Saved Tab Behavior
+
+- Show a badge count on **Saved** when intentionally saved steps exist.
+- Empty state: **No saved steps**
+- Body: **Steps you keep for later will show up here.**
+- Existing `RecentStepsView` can become the content of the **Saved** tab.
+
+---
+
+## 5. Screen Specs
+
+### S1 — Brain Dump
+
+**Purpose:** Give the user a low-pressure place to dump what is tangled.
+
+**Content:**
+
+- Logo/title: **Unstick**
+- Prompt: **What are you stuck on?**
+- Helper copy: **Dump the mess. I’ll turn it into one step.**
+- Large multiline text input
+- Character count, if useful: `174/500`
+- Primary CTA: **Find my next step**
+
+**Remove:**
+
+- The large **Recent steps** tile
+
+**States:**
+
+- **Empty** — CTA disabled
+- **Has input** — CTA enabled
+- **Loading** — full-screen loading overlay
+- **Needs clarification** — show one inline question below the input
+- **Error** — show concise error below the input
+
+**Loading copy:**
+
+**Working on your reflection...**
+
+**Transition:**
+
+Tap **Find my next step**:
+
+- Run extraction
+- Run clarification option generation
+- Navigate to **S2 — Reflection + Choice** when both are ready
+
+If latency becomes too long, keep the existing loading screen rather than showing partial
+reflection content.
+
+---
+
+### S2 — Reflection + Choice
+
+**Purpose:** Reflect the user's situation briefly, then ask the choice that drives the next
+step.
+
+**Title:**
+
+**Here’s what I’m hearing**
+
+**Summary card:**
+
+Label:
+
+**SUMMARY**
+
+Body:
+
+One short paragraph, ideally 1-2 sentences.
+
+Example:
+
+> You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear.
+
+**Choice section:**
+
+Label:
+
+**WHICH FEELS MOST TRUE RIGHT NOW?**
+
+Options:
+
+- 3 AI-generated first-person choices, one for each `StuckMode`
+- A fourth static option: **Something else**
+
+Example options:
+
+- **I keep trying fixes, but nothing works.**
+- **I’m not sure where to begin or what the real cause is.**
+- **I feel overwhelmed and can’t focus.**
+- **Something else**
+
+**Correction action:**
+
+Use one low-emphasis link:
+
+**Edit what I wrote**
+
+This returns the user to the brain dump with their original text preserved, ready to revise.
+Avoid **Edit the summary** — the summary is AI-generated, not user text, so that label promises
+inline summary editing the action does not perform. Avoid **Start over** (implies the text is
+lost) and **Try again** (on a choice screen it reads as "reroll the options," not "edit my
+text"). Do not also show **That’s not quite it**; it overlaps with **Something else** and
+creates an unclear distinction.
+
+**Behavior:**
+
+- Tapping one of the 3 generated options runs next-step generation using that option’s
+  `StuckMode`.
+- Tapping **Something else** regenerates a fresh set of 3 options from the same brain dump,
+  with a brief loading state. It does **not** open a text field. This preserves the core
+  no-typing principle (see MVP spec §3 rationale): typing is exactly the cognitive load a
+  stuck user lacks, and a free-text answer has no `StuckMode`, which Stage 3 generation
+  requires. Because rerolling adds no new user signal, the second set can miss for the same
+  reason the first did; after one reroll, nudge toward **Edit what I wrote**.
+- Tapping **Edit what I wrote** returns to the brain dump with the existing text preserved.
+
+**Important constraint:**
+
+This screen should aim to fit one iPhone viewport without scrolling for ordinary output at the
+default Dynamic Type size. It is a design target, not a hard rule: when the summary or options
+wrap, or the user has enlarged text, the screen must scroll gracefully rather than truncate or
+clip the **Something else** row. Never sacrifice AI output or a tappable control to avoid a
+scroll.
+
+---
+
+### S3 — One Next Step
+
+**Purpose:** Give the user one small, concrete action.
+
+**Title:**
+
+**Here’s your next step**
+
+**Content:**
+
+Label:
+
+**YOUR NEXT STEP**
+
+Prominent step text:
+
+> Write one sentence:
+> “I keep getting stuck with AI/SwiftUI compatibility because...”
+> Then stop.
+
+Helper copy:
+
+**Keep it short. This is only to surface the real friction, not solve the whole app.**
+
+Primary CTA:
+
+**Start this step**
+
+Secondary actions:
+
+- **I’m still stuck**
+- **Save for later**
+- **Come back tomorrow** only if the deferred flow exists and is implemented (see
+  `come_back_tomorrow_spec.md` — a soft return point, not a "pause," with an optional reminder)
+
+**Behavior:**
+
+- **Start this step** clears the active draft and returns to the Unstick tab.
+- **I’m still stuck** reveals the existing `fallbackStep` inline (per §13); it does not return
+  to the choice screen.
+- **Save for later** stores the step locally and updates the Saved tab badge.
+- **Come back tomorrow** defers the step per `come_back_tomorrow_spec.md` (creates one
+  `RecommendedStep` with `source == .deferredTomorrow`, clears the draft, optionally offers a
+  reminder).
+
+---
+
+## 6. AI Contract Changes
+
+### Stage 1 — Extraction
+
+Keep the existing `ExtractionResult`, but the UI should no longer display every field.
+
+Displayed on S2:
+
+- `goalSummary` and/or `frictionSummary` folded into a single concise `summary`
+
+Not displayed by default:
+
+- individual blockers
+- blocker type badges
+- `whatINoticed`
+
+These fields may still be useful internally for generating better clarification options and
+next steps.
+
+### New Display Summary
+
+**Preferred: add one field to the existing extraction call** so no extra round-trip is
+introduced:
+
+```swift
+@Generable
+struct ExtractionResult {
+    let isActionable: Bool
+    let clarificationPrompt: String?
+    let goalSummary: String
+    let blockers: [Blocker]
+    let frictionSummary: String
+    let summary: String          // NEW — second-person display line for S2
+}
+```
+
+A separate `ReflectionSummary` generation is a second model call on the flow’s critical path
+and adds latency to the moment we most want to feel instant. Only fall back to a standalone
+call if folding `summary` into extraction measurably degrades extraction quality.
+
+Avoid local concatenation of `goalSummary` + `frictionSummary` for display — it reads stitched
+and breaks the second-person voice.
+
+Prompt guidance:
+
+- Write in second person.
+- Use one short paragraph.
+- Maximum 28 words.
+- Name the user’s goal and the friction.
+- Avoid diagnosis, therapy language, and generic encouragement.
+
+Example:
+
+> You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear.
+
+### Stage 2 — Clarification Options
+
+Keep the existing `ClarificationResult` shape:
+
+```swift
+struct ClarificationResult {
+    var options: [ClarificationOption]
+}
+```
+
+Requirements:
+
+- Exactly 3 generated options
+- One option per `StuckMode`
+- First-person language
+- Short enough to fit in a tappable row
+- Specific to the user’s brain dump
+
+### Stage 3 — Next Step
+
+Continue generating one activation step based on:
+
+- original brain dump
+- extraction result
+- selected clarification option
+- selected `StuckMode`
+
+The next step should remain small, concrete, and intentionally incomplete.
+
+---
+
+## 7. Data And State Changes
+
+### Navigation
+
+Current destinations:
+
+```swift
+case reflection(ExtractionResult, brainDump: String)
+case clarification(extraction: ExtractionResult, clarification: ClarificationResult, brainDump: String)
+case nextStep(NextStepResult, brainDump: String)
+```
+
+Recommended replacement:
+
+```swift
+case reflectionChoice(
+    extraction: ExtractionResult,
+    clarification: ClarificationResult,
+    brainDump: String
+)
+case nextStep(NextStepResult, brainDump: String)
+```
+
+The old separate reflection screen can be removed once the combined screen is stable.
+
+### Tab Root
+
+Use a root `TabView`:
+
+- **Unstick** tab: current primary `NavigationStack`
+- **Saved** tab: `RecentStepsView` or a renamed saved/recent steps view
+
+The saved tab should use a badge when `RecommendedStepStore` has active steps.
+
+---
+
+## 8. Copy System
+
+Preferred copy:
+
+- **What are you stuck on?**
+- **Dump the mess. I’ll turn it into one step.**
+- **Find my next step**
+- **Working on your reflection...**
+- **Here’s what I’m hearing**
+- **Which feels most true right now?**
+- **Something else**
+- **Edit what I wrote**
+- **Here’s your next step**
+- **Start this step**
+- **I’m still stuck**
+- **Save for later**
+
+Avoid:
+
+- **Next** as the main CTA on the brain dump screen
+- report-like section stacks
+- therapy-like labels
+- productivity/task language
+- asking the user to validate more than one screen of AI output
+
+---
+
+## 9. Visual Direction
+
+The interface should feel calm and direct, not decorative.
+
+Recommended style:
+
+- White or near-white background
+- Large readable text
+- One prominent blue CTA per screen
+- Cards/rows only where they organize action
+- No nested cards
+- Minimal shadows
+- Bottom tab bar for persistent navigation
+
+The design should make the product’s main promise obvious:
+
+> Dump what is tangled. Get one next step.
+
+---
+
+## 10. Mockups
+
+Reference mockups:
+
+- `DesignMockups/flow-composite.svg`
+- `DesignMockups/flow-1-brain-dump.svg`
+- `DesignMockups/flow-2-hearing-choice.svg`
+- `DesignMockups/flow-3-next-step.svg`
+
+These are design references, not implementation assets.
+
+---
+
+## 11. Acceptance Criteria
+
+### Flow
+
+- A user can enter a brain dump and tap **Find my next step**.
+- The app shows the existing full-screen loading treatment.
+- The app navigates to a combined reflection/choice screen.
+- The combined screen fits one viewport for normal outputs at default type size, and scrolls
+  gracefully (without clipping any control) when content wraps or Dynamic Type is enlarged.
+- The user can select one of three generated choices.
+- If clarification generation fails but extraction succeeds, the screen still shows the summary
+  and offers retry plus **Edit what I wrote**, rather than dead-ending on the loader.
+- The app generates and displays one next step.
+- The user can save the step and find it in the Saved tab.
+
+### Navigation
+
+- The brain dump screen no longer shows the large **Recent steps** tile.
+- A bottom tab bar exposes **Unstick** and **Saved**.
+- The Saved tab shows a badge/count when saved or recent steps exist.
+
+### Copy
+
+- The brain dump CTA says **Find my next step**.
+- The reflection title says **Here’s what I’m hearing**.
+- The next step CTA says **Start this step**.
+- No screen asks the user to read a long AI report before continuing.
+
+### AI Output
+
+- Summary is concise enough to fit in the summary card.
+- Clarification choices are first-person, specific, and short.
+- The next step is one small action, not a plan.
+
+---
+
+## 12. Implementation Tickets
+
+Each ticket is a self-contained, review-gated unit of work. Build them in order; **stop after
+each and review against its "Done when" gate before starting the next.** A ticket is only
+complete when every box in its gate is checked. Tickets are sized so a single review pass is
+meaningful — if one balloons, split it rather than merging the review.
+
+Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
+
+---
+
+### T1 — Tab shell (Unstick / Saved)
+**Status:** `[ ]`  ·  **Depends on:** none
+
+**Goal:** Introduce the root `TabView` so navigation is in place before screens change.
+
+**Scope:**
+- Add a root `TabView` with two tabs: **Unstick** (the existing primary `NavigationStack`) and
+  **Saved**.
+- Move `RecentStepsView` to be the content of the **Saved** tab (no behavior change yet).
+- Add a badge on **Saved** driven by `RecommendedStepStore` (saved steps only, per §13).
+- Empty state for Saved: title **No saved steps**, body **Steps you keep for later will show
+  up here.**
+
+**Files:** `ContentView.swift`, `RecentStepsView.swift`, the recommended-steps store.
+
+**Done when:**
+- [ ] App launches into the **Unstick** tab with the existing flow intact.
+- [ ] **Saved** tab shows `RecentStepsView` content (or the empty state).
+- [ ] Saved badge appears only when at least one intentionally-saved step exists.
+- [ ] No regression in the existing dump → next-step flow.
+
+---
+
+### T2 — Brain Dump screen update
+**Status:** `[ ]`  ·  **Depends on:** T1
+
+**Goal:** Make S1 match the redesign and `flow-1-brain-dump.svg`.
+
+**Scope:**
+- Remove the large **Recent steps** tile.
+- Title **Unstick**; prompt **What are you stuck on?**; helper **Dump the mess. I’ll turn it
+  into one step.**
+- CTA **Find my next step** (replaces the old CTA). Disabled when input is empty.
+- Keep draft autosave/restore behavior from the MVP spec.
+
+**Files:** `BrainDumpView.swift`.
+
+**Done when:**
+- [ ] Screen matches `flow-1-brain-dump.svg` (no tile, correct copy, tab bar visible).
+- [ ] CTA is disabled on empty input, enabled with text.
+- [ ] Draft still survives app kill/relaunch.
+
+---
+
+### T3 — Extraction summary field (AI contract)
+**Status:** `[ ]`  ·  **Depends on:** none (can run parallel to T1–T2)
+
+**Goal:** Produce the concise S2 display line without an extra model round-trip.
+
+**Scope:**
+- Add `summary: String` to the existing `ExtractionResult` `@Generable` struct (§6).
+- Update the extraction prompt: second person, one short paragraph, ≤28 words, names the goal
+  and the friction, no diagnosis/therapy/encouragement.
+- Do **not** add a separate `ReflectionSummary` call; do **not** build the summary by
+  concatenating `goalSummary` + `frictionSummary` for display.
+
+**Files:** `AIService.swift`, extraction model/prompt.
+
+**Done when:**
+- [ ] `ExtractionResult.summary` is populated on a normal dump.
+- [ ] Output is second-person, ≤28 words, reads as one natural sentence (spot-check 3+ dumps).
+- [ ] Existing `isActionable` / blockers / clarification behavior is unchanged.
+
+---
+
+### T4 — Reflection + Choice screen
+**Status:** `[ ]`  ·  **Depends on:** T3
+
+**Goal:** Build the combined S2 screen (`ReflectionChoiceView`) per §5 and
+`flow-2-hearing-choice.svg` — not yet wired into navigation.
+
+**Scope:**
+- Title **Here’s what I’m hearing**; **SUMMARY** card showing `ExtractionResult.summary`.
+- Section **Which feels most true right now?** with the 3 generated `ClarificationOption` rows
+  plus a static **Something else** row.
+- Low-emphasis link **Edit what I wrote**.
+- Tapping a generated option triggers next-step generation with that option’s `StuckMode`.
+- Tapping **Edit what I wrote** returns to the brain dump with text preserved.
+- Layout: fits one viewport at default Dynamic Type; **scrolls gracefully** when content wraps
+  or text is enlarged — never clip the **Something else** row or any control.
+
+**Files:** new `ReflectionChoiceView.swift`.
+
+**Done when:**
+- [ ] Screen matches `flow-2-hearing-choice.svg` including the **Edit what I wrote** link.
+- [ ] Renders correctly with a 2-line summary and a 2-line option at the largest Dynamic Type
+      size (scrolls, nothing clipped).
+- [ ] Selecting a generated option carries the correct `StuckMode` forward.
+- [ ] **Edit what I wrote** returns to the dump with the original text intact.
+
+---
+
+### T5 — Navigation rewiring (single loader → Reflection + Choice)
+**Status:** `[ ]`  ·  **Depends on:** T4
+
+**Goal:** Route the flow through the combined screen behind one loading state.
+
+**Scope:**
+- On **Find my next step**, run extraction + clarification-option generation behind the
+  existing full-screen loader (copy: **Working on your reflection...**), then navigate to
+  `ReflectionChoiceView` when both are ready.
+- Replace the navigation destinations per §7: introduce `reflectionChoice(...)`; keep
+  `nextStep(...)`.
+- Leave the old `ReflectionView` / `ClarificationView` in the project for now (removed in T11).
+
+**Files:** `AppDestination.swift`, the router/navigation glue, `BrainDumpView.swift`.
+
+**Done when:**
+- [ ] Dump → single loader → `ReflectionChoiceView` works end to end.
+- [ ] No intermediate auto-advancing reflection screen appears.
+- [ ] The old separate reflection/clarification screens are no longer reachable in the flow.
+
+---
+
+### T6 — "Something else" reroll
+**Status:** `[ ]`  ·  **Depends on:** T5
+
+**Goal:** Implement the no-typing correction path (§5).
+
+**Scope:**
+- Tapping **Something else** regenerates a fresh set of 3 options from the same brain dump,
+  with a brief loading state. No text field / sheet.
+- After one reroll that the user rejects, nudge toward **Edit what I wrote**.
+
+**Files:** `ReflectionChoiceView.swift`, `AIService.swift`.
+
+**Done when:**
+- [ ] **Something else** produces 3 new options without any typed input.
+- [ ] Each regenerated set still has one option per `StuckMode`.
+- [ ] After a second pass, the UI surfaces **Edit what I wrote** more prominently.
+
+---
+
+### T7 — Loading & partial-failure states
+**Status:** `[ ]`  ·  **Depends on:** T5
+
+**Goal:** Make the combined load resilient (§11 acceptance criteria).
+
+**Scope:**
+- If extraction succeeds but clarification-option generation fails, still show the summary and
+  offer **retry** plus **Edit what I wrote** — do not dead-end on the loader.
+- If latency is high, hold the full-screen loader rather than showing partial reflection
+  content.
+
+**Files:** `ReflectionChoiceView.swift`, navigation glue, loader overlay.
+
+**Done when:**
+- [ ] Simulated clarification failure shows summary + retry + **Edit what I wrote**.
+- [ ] Simulated extraction failure shows a concise error on the brain dump screen.
+- [ ] No state leaves the user stuck on a spinner.
+
+---
+
+### T8 — Next Step screen
+**Status:** `[ ]`  ·  **Depends on:** T5
+
+**Goal:** Finish S3 per §5 and `flow-3-next-step.svg`.
+
+**Scope:**
+- Title **Here’s your next step**; **YOUR NEXT STEP** label; prominent step text; helper copy.
+- Primary CTA **Start this step** (clears draft, returns to Unstick tab).
+- Secondary **I’m still stuck** reveals the existing `fallbackStep` inline (does not return to
+  the choice screen).
+- **Save for later** stores the step in `RecommendedStepStore` and updates the Saved badge.
+- **Come back tomorrow** only if T9 is in scope; otherwise omit the control entirely.
+
+**Files:** `NextStepView.swift`, recommended-steps store.
+
+**Done when:**
+- [ ] Screen matches `flow-3-next-step.svg`.
+- [ ] **Start this step** clears the draft and returns to the Unstick tab.
+- [ ] **I’m still stuck** reveals the fallback inline.
+- [ ] **Save for later** persists the step and it appears in the **Saved** tab with the badge
+      incremented.
+
+---
+
+### T9 — Come back tomorrow (deferred flow) — OPTIONAL
+**Status:** `[ ]`  ·  **Depends on:** T8  ·  **Gated by the §13 open question**
+
+**Goal:** Add the soft return point only if shipping it in this redesign.
+
+**Scope:** Implement per `come_back_tomorrow_spec.md` (defer creates one `RecommendedStep` with
+`source == .deferredTomorrow`, clears draft, optional reminder, return card on next launch).
+
+**Done when:**
+- [ ] Decision recorded: ship now or defer.
+- [ ] If shipping: meets `come_back_tomorrow_spec.md` §10 acceptance criteria.
+- [ ] If deferring: **Come back tomorrow** does not render on S3.
+
+---
+
+### T10 — Tests
+**Status:** `[ ]`  ·  **Depends on:** T5, T8
+
+**Goal:** Lock in the behavior that matters.
+
+**Scope:**
+- Navigation: dump → reflection+choice → next step.
+- Save behavior: **Save for later** updates the store and Saved badge.
+- AI contract assumptions: extraction returns `summary`; clarification returns exactly 3
+  options, one per `StuckMode`.
+- Layout: S2 scrolls (no clipping) at the largest Dynamic Type size.
+
+**Done when:**
+- [ ] Tests cover each item above and pass.
+- [ ] AI-contract tests fail loudly if the schema regresses.
+
+---
+
+### T11 — Cleanup
+**Status:** `[ ]`  ·  **Depends on:** T5–T8 stable
+
+**Goal:** Remove dead code once the combined flow is proven.
+
+**Scope:**
+- Delete `ReflectionView` and `ClarificationView` and their old navigation destinations.
+- Remove any now-unused MVP `ShareLink` save path.
+
+**Done when:**
+- [ ] Old reflection/clarification views and destinations are gone.
+- [ ] Project builds with no unused-symbol warnings from the removed flow.
+- [ ] Single save mechanism remains (the local store).
+
+---
+
+## 13. Resolved Decisions
+
+- **Something else** regenerates a fresh set of 3 tappable options (no typed correction). This
+  keeps the no-typing principle intact and avoids a free-text answer with no `StuckMode`.
+- **I’m still stuck** reveals the existing `fallbackStep` inline; it does not return to the
+  choice screen.
+- The saved tab is named **Saved**.
+- For MVP, the Saved tab shows only intentionally saved steps. Auto-collecting every generated
+  step turns it into a history feature (post-MVP) and muddies the badge count.
+- The save mechanism is a local `RecommendedStepStore`, replacing the MVP spec’s
+  `ShareLink`-based "Save this step." Ship one save mechanism, not both. Note this pulls a
+  slice of the post-MVP "session history" scope forward.
+
+### Still open
+
+- Does the **Come back tomorrow** deferred flow (`come_back_tomorrow_spec.md`) ship in this
+  redesign, or stay behind its own spec? It is a soft return point with an optional reminder,
+  not a "pause." Secondary actions on S3 should only render the controls that actually exist.
+

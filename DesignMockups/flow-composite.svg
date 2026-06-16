@@ -1,0 +1,29 @@
+<svg width="1800" height="1120" viewBox="0 0 1800 1120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="1800" height="1120" fill="#f3f4f7"/>
+  <text x="90" y="95" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="42" font-weight="700" fill="#111">Suggested Unstick flow</text>
+  <text x="90" y="143" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="24" fill="#6f7480">Dump the mess, confirm the shape, then get one doable next step.</text>
+
+  <g transform="translate(95 190) scale(0.46)" filter="url(#shadow)">
+    <image href="flow-1-brain-dump.svg" width="945" height="1679"/>
+  </g>
+  <g transform="translate(682 190) scale(0.46)" filter="url(#shadow)">
+    <image href="flow-2-hearing-choice.svg" width="945" height="1679"/>
+  </g>
+  <g transform="translate(1269 190) scale(0.46)" filter="url(#shadow)">
+    <image href="flow-3-next-step.svg" width="945" height="1679"/>
+  </g>
+
+  <text x="312" y="1015" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="28" font-weight="700" fill="#111">1. Brain dump</text>
+  <text x="899" y="1015" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="28" font-weight="700" fill="#111">2. Reflection + choice</text>
+  <text x="1486" y="1015" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', Arial, sans-serif" font-size="28" font-weight="700" fill="#111">3. One next step</text>
+
+  <path d="M555 570h78" stroke="#b7bbc4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M620 545l28 25-28 25" fill="none" stroke="#b7bbc4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1142 570h78" stroke="#b7bbc4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M1207 545l28 25-28 25" fill="none" stroke="#b7bbc4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
