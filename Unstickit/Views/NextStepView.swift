@@ -6,9 +6,12 @@ struct NextStepView: View {
     @Binding var path: NavigationPath
     let onRetry: (String) -> Void
 
+    @EnvironmentObject private var stepStore: RecommendedStepStore
     @AppStorage("draft_brain_dump") private var draft: String = ""
     @State private var fallbackRevealed = false
     @State private var stillStuckCount = 0
+    @State private var confirmationMessage: String? = nil
+    @State private var showTomorrowConfirmation = false
 
     var body: some View {
         ScrollView {
@@ -36,6 +39,12 @@ struct NextStepView: View {
                         Text(result.fallbackStep)
                             .font(.body)
                             .foregroundStyle(.secondary)
+
+                        Button("Save smaller step") {
+                            stepStore.saveFallbackStep(text: result.fallbackStep, brainDump: brainDump)
+                            confirmationMessage = "Saved."
+                        }
+                        .font(.subheadline)
                     }
                     .padding(16)
                     .background(Color(.secondarySystemBackground))
@@ -60,6 +69,34 @@ struct NextStepView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                 }
+
+                Button {
+                    deferUntilTomorrow()
+                } label: {
+                    Text("Come back tomorrow")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+
+                Button {
+                    stepStore.saveStep(text: result.nextStep, fallbackText: result.fallbackStep, brainDump: brainDump)
+                    confirmationMessage = "Saved."
+                } label: {
+                    Text("Save this step")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+
+                if let confirmationMessage {
+                    Text(confirmationMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
             }
             .padding(24)
         }
@@ -67,6 +104,13 @@ struct NextStepView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .animation(.easeInOut(duration: 0.3), value: fallbackRevealed)
+        .alert("We'll hold this for tomorrow.", isPresented: $showTomorrowConfirmation) {
+            Button("Done") {
+                path = NavigationPath()
+            }
+        } message: {
+            Text("No need to solve it right now. When you come back, we'll start from this step.")
+        }
     }
 
     private func handleStillStuck() {
@@ -82,5 +126,15 @@ struct NextStepView: View {
     private func finish() {
         draft = ""
         path = NavigationPath()
+    }
+
+    private func deferUntilTomorrow() {
+        stepStore.deferUntilTomorrow(
+            text: result.nextStep,
+            fallbackText: result.fallbackStep,
+            brainDump: brainDump
+        )
+        draft = ""
+        showTomorrowConfirmation = true
     }
 }

@@ -1,16 +1,23 @@
 import SwiftUI
+import AnimationLoadersKit
 
 struct ReflectionView: View {
     let extraction: ExtractionResult
+    let brainDump: String
     @Binding var path: NavigationPath
 
     @State private var clarification: ClarificationResult? = nil
     @State private var isConfirming = false
+    @State private var isLoadingClarification = false
     @State private var errorMessage: String? = nil
 
+    private let loadingFadeDuration = 0.14
+    private let loadingFadeDelayNanoseconds: UInt64 = 140_000_000
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
 
                 ReflectionSection(title: "Your goal") {
                     Text(extraction.goalSummary)
@@ -45,20 +52,13 @@ struct ReflectionView: View {
                         .font(.headline)
 
                     Button(action: confirmAndProceed) {
-                        HStack(spacing: 8) {
-                            if isConfirming {
-                                ProgressView()
-                                    .tint(.white)
-                                    .scaleEffect(0.85)
-                            }
-                            Text(isConfirming ? "Finding your options..." : "Yes, that's it")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        Text(isConfirming ? "Finding your options..." : "Yes, that's it")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.accentColor)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                     }
                     .disabled(isConfirming)
 
@@ -77,9 +77,19 @@ struct ReflectionView: View {
                     Button("Try again") { loadClarification() }
                         .buttonStyle(.bordered)
                 }
+                }
+                .padding(24)
             }
-            .padding(24)
+            .disabled(isLoadingClarification)
+            .opacity(isLoadingClarification ? 0.18 : 1)
+
+            if isLoadingClarification {
+                FullScreenPauseLoaderOverlay(message: "Preparing your options...",
+                                             dotCount: 170)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: loadingFadeDuration), value: isLoadingClarification)
         .navigationTitle("Here's what I see")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadClarification() }
@@ -89,7 +99,8 @@ struct ReflectionView: View {
         if let c = clarification {
             path.append(AppDestination.clarification(
                 extraction: extraction,
-                clarification: c
+                clarification: c,
+                brainDump: brainDump
             ))
         } else {
             isConfirming = true
@@ -98,24 +109,44 @@ struct ReflectionView: View {
 
     private func loadClarification() {
         errorMessage = nil
+        withAnimation(.easeInOut(duration: loadingFadeDuration)) {
+            isLoadingClarification = true
+        }
         Task {
             do {
                 let result = try await AIService.shared.clarify(extraction: extraction)
                 await MainActor.run {
-                    clarification = result
-                    if isConfirming {
-                        path.append(AppDestination.clarification(
-                            extraction: extraction,
-                            clarification: result
-                        ))
+                    finishLoadingClarification {
+                        clarification = result
+                        if isConfirming {
+                            path.append(AppDestination.clarification(
+                                extraction: extraction,
+                                clarification: result,
+                                brainDump: brainDump
+                            ))
+                        }
                     }
                 }
             } catch {
                 await MainActor.run {
-                    isConfirming = false
-                    errorMessage = error.localizedDescription
+                    finishLoadingClarification {
+                        isConfirming = false
+                        errorMessage = error.localizedDescription
+                    }
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func finishLoadingClarification(_ action: @escaping () -> Void) {
+        withAnimation(.easeInOut(duration: loadingFadeDuration)) {
+            isLoadingClarification = false
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: loadingFadeDelayNanoseconds)
+            action()
         }
     }
 }

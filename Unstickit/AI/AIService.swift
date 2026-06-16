@@ -55,7 +55,7 @@ actor AIService {
 
         Analyze their input and produce:
         - goalSummary: A single warm sentence reflecting back what they are trying to accomplish, \
-        written as if you genuinely understand why it matters to them.
+        written as if you genuinely understand why it matters to them. Write in second person.
         - blockers: 1 to 3 blockers written in plain, human language — not clinical labels. \
         Each should feel like something a thoughtful friend would name, not a project manager. \
         Describe how the blocker feels from the inside, not how it looks from the outside. \
@@ -66,8 +66,12 @@ actor AIService {
         - whatINoticed: One sentence beginning with "I noticed" or "Something I noticed" that \
         surfaces a specific, non-obvious pattern or tension — something the user may not have named \
         directly but that helps explain why they are stuck. This should feel like a small honest \
-        insight, not a restatement of what they said.
-        - isActionable: true if this describes a real stuck situation with enough context. \
+        insight, not a restatement of what they said. Do NOT rephrase what the user said. \
+        Surface something that helps explain *why* — a pattern, tension, or dynamic they didn't name. \
+        For example: name a loop, a gap between intention and action, or what the repeated behavior reveals.
+        - isActionable: true only if the input describes a specific situation with enough detail \
+        to identify a goal and at least one blocker. Single words, sentence fragments, or inputs \
+        with no described context should return false. \
         If false, set clarificationPrompt to a single warm, friendly question asking for more context.
 
         User input:
@@ -121,6 +125,8 @@ actor AIService {
         Each option must be a short first-person phrase the user can tap to identify with \
         (e.g. "I keep trying fixes but nothing works").
         Each option must be specific to this situation — not generic.
+        Do NOT copy blocker text. Write new phrases that feel natural to say aloud. \
+        The blocker context is for understanding only — the options must be original.
         One option must be generated for each of the three modes below:
 
         reproduce — the user has tried multiple approaches and none have worked
@@ -196,6 +202,8 @@ actor AIService {
         let prompt = """
         Extract a short 2–4 word noun phrase that names the specific problem.
         Return only the phrase — no punctuation, no explanation.
+        The phrase must name the thing that is broken or unclear, not the activity of fixing it. \
+        Use "terrain holes" not "terrain debugging". Use "login bug" not "authentication work".
         Examples: "terrain holes", "login bug", "slow build times", "payment errors"
 
         Goal: \(extraction.goalSummary)
