@@ -1,11 +1,10 @@
 import SwiftUI
-import AnimationLoadersKit
 
 struct BrainDumpView: View {
     @Binding var path: NavigationPath
-    @Binding var retryText: String
 
     @EnvironmentObject private var stepStore: RecommendedStepStore
+    @Environment(AppNavigation.self) private var nav
     @AppStorage("draft_brain_dump") private var draft: String = ""
     @State private var isLoading = false
     @State private var clarificationPrompt: String? = nil
@@ -23,8 +22,8 @@ struct BrainDumpView: View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        SandTextView(text: "UnStickIt",
+                    VStack(alignment: .leading, spacing: 16) {
+                        SandTextView(text: "Unstick",
                                      seed: 23,
                                      dotCount: 240,
                                      dotColor: .primary,
@@ -32,21 +31,15 @@ struct BrainDumpView: View {
                             .frame(height: 92)
                             .frame(maxWidth: .infinity)
 
-                        if stepStore.hasActiveSteps {
-                            NavigationLink {
-                                RecentStepsView(path: $path)
-                            } label: {
-                                RecentStepsLink(
-                                    count: stepStore.activeSteps.count
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.top, 4)
-                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("What are you stuck on?")
+                                .font(.title3)
+                                .fontWeight(.semibold)
 
-                        Text("What are you stuck on?")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
+                            Text("Write whatever comes to mind")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     TextEditor(text: $draft)
@@ -76,7 +69,7 @@ struct BrainDumpView: View {
                     }
 
                     Button(action: submit) {
-                        Text(isLoading ? "Thinking..." : "Next")
+                        Text(isLoading ? "Thinking..." : "Find my next step")
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -127,9 +120,9 @@ struct BrainDumpView: View {
                 stepStore.purgeExpired()
             }
             // Apply retry text from "I'm still stuck" (second tap)
-            if !retryText.isEmpty {
-                draft = retryText
-                retryText = ""
+            if !nav.retryBrainDump.isEmpty {
+                draft = nav.retryBrainDump
+                nav.retryBrainDump = ""
             }
             clarificationPrompt = nil
             errorMessage = nil
@@ -154,14 +147,30 @@ struct BrainDumpView: View {
 
         Task {
             do {
-                let result = try await AIService.shared.extract(from: trimmed)
+                // Run extraction + clarification-option generation behind one loader,
+                // then navigate straight to the combined Reflection + Choice screen.
+                let extraction = try await AIService.shared.extract(from: trimmed)
+
+                guard extraction.isActionable else {
+                    await MainActor.run {
+                        finishLoading {
+                            clarificationPrompt = extraction.clarificationPrompt
+                        }
+                    }
+                    return
+                }
+
+                // Hold the loader through clarification. If it fails (but extraction
+                // succeeded), still advance to the choice screen with the summary and
+                // let that screen offer a retry — don't dead-end on the dump.
+                let clarification = try? await AIService.shared.clarify(extraction: extraction)
                 await MainActor.run {
                     finishLoading {
-                        if result.isActionable {
-                            path.append(AppDestination.reflection(result, brainDump: trimmed))
-                        } else {
-                            clarificationPrompt = result.clarificationPrompt
-                        }
+                        path.append(AppDestination.reflectionChoice(
+                            extraction: extraction,
+                            clarification: clarification,
+                            brainDump: trimmed
+                        ))
                     }
                 }
             } catch {
@@ -184,51 +193,5 @@ struct BrainDumpView: View {
             try? await Task.sleep(nanoseconds: loadingFadeDelayNanoseconds)
             action()
         }
-    }
-}
-
-private struct RecentStepsLink: View {
-    let count: Int
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "tray.full")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
-                .background(Color(.tertiarySystemBackground))
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text("Recent steps")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-
-                    Text("\(count)")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color(.tertiarySystemBackground))
-                        .clipShape(Capsule())
-                }
-
-                Text(count == 1 ? "1 step saved for later" : "\(count) steps saved for later")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(14)
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

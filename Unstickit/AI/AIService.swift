@@ -4,6 +4,7 @@ import FoundationModels
 enum AIServiceError: Error, LocalizedError {
     case modelUnavailable
     case extractionFailed
+    case contentRefused
     case clarificationFailed
     case nextStepFailed
 
@@ -13,10 +14,22 @@ enum AIServiceError: Error, LocalizedError {
             return "Apple Intelligence is not available on this device."
         case .extractionFailed:
             return "Could not analyze your input. Please try again."
+        case .contentRefused:
+            return "Some of what you wrote may be sensitive, so it couldn't be analyzed. Try rephrasing it."
         case .clarificationFailed:
             return "Could not generate options. Please try again."
         case .nextStepFailed:
             return "Could not generate your next step. Please try again."
+        }
+    }
+
+    /// A refusal won't succeed on retry — the input itself needs to change.
+    var isRetryable: Bool {
+        switch self {
+        case .contentRefused, .modelUnavailable:
+            return false
+        case .extractionFailed, .clarificationFailed, .nextStepFailed:
+            return true
         }
     }
 }
@@ -69,6 +82,10 @@ actor AIService {
         insight, not a restatement of what they said. Do NOT rephrase what the user said. \
         Surface something that helps explain *why* — a pattern, tension, or dynamic they didn't name. \
         For example: name a loop, a gap between intention and action, or what the repeated behavior reveals.
+        - summary: A short second-person display line — one sentence, at most 28 words — that \
+        names what they want to accomplish and the friction getting in the way. Plain and direct: \
+        no diagnosis, no therapy language, no generic encouragement. \
+        Example: "You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear."
         - isActionable: true only if the input describes a specific situation with enough detail \
         to identify a goal and at least one blocker. Single words, sentence fragments, or inputs \
         with no described context should return false. \
@@ -98,6 +115,7 @@ actor AIService {
             \(result.blockers.map { "│     [\($0.type.rawValue)] \($0.description)" }.joined(separator: "\n"))
             │   frictionSummary: \(result.frictionSummary)
             │   whatINoticed: \(result.whatINoticed)
+            │   summary: \(result.summary)
             └────────────────────────────────────────────────────
             """)
             return result
@@ -105,6 +123,13 @@ actor AIService {
             return response.content
             #endif
         } catch {
+            #if DEBUG
+            print("⚠️ STAGE 1 extraction error: \(error)")
+            #endif
+            if let genError = error as? LanguageModelSession.GenerationError,
+               case .refusal = genError {
+                throw AIServiceError.contentRefused
+            }
             throw AIServiceError.extractionFailed
         }
     }

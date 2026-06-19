@@ -1,5 +1,4 @@
 import SwiftUI
-import AnimationLoadersKit
 
 struct ReflectionView: View {
     let extraction: ExtractionResult

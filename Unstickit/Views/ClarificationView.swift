@@ -1,5 +1,4 @@
 import SwiftUI
-import AnimationLoadersKit
 
 struct ClarificationView: View {
     let extraction: ExtractionResult

@@ -109,7 +109,7 @@ unstuck flow.
 
 - Logo/title: **Unstick**
 - Prompt: **What are you stuck on?**
-- Helper copy: **Dump the mess. I’ll turn it into one step.**
+- Helper copy: **Write whatever comes to mind**
 - Large multiline text input
 - Character count, if useful: `174/500`
 - Primary CTA: **Find my next step**
@@ -386,6 +386,29 @@ Use a root `TabView`:
 
 The saved tab should use a badge when `RecommendedStepStore` has active steps.
 
+### View-model ownership (avoid re-analysis on tab return)
+
+With the tab shell (T1), the **Unstick** tab's `NavigationStack` and its pushed screens stay
+alive when the user switches to **Saved** and back. On return, SwiftUI re-fires `.onAppear`.
+
+The original `ReflectionView` started its clarification call in `.onAppear { loadClarification() }`,
+so returning to the tab re-ran the AI analysis even though the result was already held in
+`@State` (the state survives the tab switch — only `.onAppear` re-fires, and it re-launches the
+call unconditionally).
+
+**Rule for the new screens: own AI generation in a `@StateObject` view model and start each
+call exactly once — never from `.onAppear`.** Concretely:
+
+- Kick the task off from an idempotent `load()` (no-op if a result already exists or a call is
+  in flight), or use SwiftUI `.task(id:)` keyed to the brain dump so it runs once per input.
+- Preferred: per **T5**, run extraction + clarification-option generation *before* navigating
+  (behind the dump loader), so the combined screen receives finished data and starts no work on
+  appear — there is nothing to re-trigger.
+
+The old `ReflectionView` / `ClarificationView` are **not patched** for this; they are removed in
+**T11**. A one-line idempotency guard would stop the reload there, but it is not worth adding to
+soon-deleted code.
+
 ---
 
 ## 8. Copy System
@@ -393,7 +416,7 @@ The saved tab should use a badge when `RecommendedStepStore` has active steps.
 Preferred copy:
 
 - **What are you stuck on?**
-- **Dump the mess. I’ll turn it into one step.**
+- **Write whatever comes to mind**
 - **Find my next step**
 - **Working on your reflection...**
 - **Here’s what I’m hearing**
@@ -496,7 +519,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 ---
 
 ### T1 — Tab shell (Unstick / Saved)
-**Status:** `[ ]`  ·  **Depends on:** none
+**Status:** `[x]`  ·  **Depends on:** none
 
 **Goal:** Introduce the root `TabView` so navigation is in place before screens change.
 
@@ -511,22 +534,21 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 **Files:** `ContentView.swift`, `RecentStepsView.swift`, the recommended-steps store.
 
 **Done when:**
-- [ ] App launches into the **Unstick** tab with the existing flow intact.
-- [ ] **Saved** tab shows `RecentStepsView` content (or the empty state).
-- [ ] Saved badge appears only when at least one intentionally-saved step exists.
-- [ ] No regression in the existing dump → next-step flow.
+- [x] App launches into the **Unstick** tab with the existing flow intact.
+- [x] **Saved** tab shows `RecentStepsView` content (or the empty state).
+- [x] Saved badge appears only when at least one intentionally-saved step exists.
+- [x] No regression in the existing dump → next-step flow.
 
 ---
 
 ### T2 — Brain Dump screen update
-**Status:** `[ ]`  ·  **Depends on:** T1
+**Status:** `[x]`  ·  **Depends on:** T1
 
 **Goal:** Make S1 match the redesign and `flow-1-brain-dump.svg`.
 
 **Scope:**
 - Remove the large **Recent steps** tile.
-- Title **Unstick**; prompt **What are you stuck on?**; helper **Dump the mess. I’ll turn it
-  into one step.**
+- Title **Unstick**; prompt **What are you stuck on?**; helper **Write whatever comes to mind**
 - CTA **Find my next step** (replaces the old CTA). Disabled when input is empty.
 - Keep draft autosave/restore behavior from the MVP spec.
 
@@ -540,7 +562,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 ---
 
 ### T3 — Extraction summary field (AI contract)
-**Status:** `[ ]`  ·  **Depends on:** none (can run parallel to T1–T2)
+**Status:** `[x]`  ·  **Depends on:** none (can run parallel to T1–T2)
 
 **Goal:** Produce the concise S2 display line without an extra model round-trip.
 
@@ -554,14 +576,25 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 **Files:** `AIService.swift`, extraction model/prompt.
 
 **Done when:**
-- [ ] `ExtractionResult.summary` is populated on a normal dump.
-- [ ] Output is second-person, ≤28 words, reads as one natural sentence (spot-check 3+ dumps).
-- [ ] Existing `isActionable` / blockers / clarification behavior is unchanged.
+- [x] `ExtractionResult.summary` is populated on a normal dump.
+- [x] Output is second-person, ≤28 words, reads as one natural sentence (spot-check 3+ dumps).
+- [x] Existing `isActionable` / blockers / clarification behavior is unchanged.
+
+**Notes:**
+- Verified on 3 dumps (podcast 25w / novel 26w / running 16w) — all second-person, name goal +
+  friction, no therapy-speak. `goalSummary` and blockers still generate correctly alongside.
+- The on-device model can **refuse** a dump it deems sensitive — `extract` throws
+  `GenerationError.Refusal ("May contain sensitive content")` (seen on a taxes + anxiety dump).
+  This is pre-existing `FoundationModels` behavior, not introduced by the `summary` field;
+  `clarify` / `generateNextStep` would refuse the same input. Added a `#if DEBUG` log of the
+  caught error in `extract` to make refusals diagnosable. See T7 note below — today a refusal
+  surfaces as the generic "Could not analyze your input. Please try again.", which dead-ends the
+  user (retrying never helps).
 
 ---
 
 ### T4 — Reflection + Choice screen
-**Status:** `[ ]`  ·  **Depends on:** T3
+**Status:** `[x]`  ·  **Depends on:** T3
 
 **Goal:** Build the combined S2 screen (`ReflectionChoiceView`) per §5 and
 `flow-2-hearing-choice.svg` — not yet wired into navigation.
@@ -573,22 +606,34 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 - Low-emphasis link **Edit what I wrote**.
 - Tapping a generated option triggers next-step generation with that option’s `StuckMode`.
 - Tapping **Edit what I wrote** returns to the brain dump with text preserved.
+- Own AI state in a `@StateObject` view model; start any generation exactly once (never from
+  `.onAppear`) so switching tabs and back does not re-analyze. See §7 *View-model ownership*.
 - Layout: fits one viewport at default Dynamic Type; **scrolls gracefully** when content wraps
   or text is enlarged — never clip the **Something else** row or any control.
 
 **Files:** new `ReflectionChoiceView.swift`.
 
 **Done when:**
-- [ ] Screen matches `flow-2-hearing-choice.svg` including the **Edit what I wrote** link.
-- [ ] Renders correctly with a 2-line summary and a 2-line option at the largest Dynamic Type
-      size (scrolls, nothing clipped).
-- [ ] Selecting a generated option carries the correct `StuckMode` forward.
-- [ ] **Edit what I wrote** returns to the dump with the original text intact.
+- [x] Screen matches `flow-2-hearing-choice.svg` including the **Edit what I wrote** link.
+- [x] Renders correctly with a 2-line summary and a 2-line option at the largest Dynamic Type
+      size (scrolls, nothing clipped). Verified live at `.accessibility5` via a temporary harness.
+- [x] Selecting a generated option carries the correct `StuckMode` forward. *(Implemented:
+      `model.select(option)` passes `option.mode` to `generateNextStep`; result published to
+      `generatedStep`, view appends `.nextStep`. End-to-end nav confirmed in T5.)*
+- [x] **Edit what I wrote** returns to the dump with the original text intact. *(Implemented:
+      pops `path` to root; dump text persists via `@AppStorage`. Confirmed end-to-end in T5.)*
+
+**Notes:**
+- View model `ReflectionChoiceModel` lives in `ViewModels/` (separate file). All outputs are
+  `@Published` (`options`, `isGenerating`, `generatedStep`, `errorMessage`); the view observes
+  `generatedStep` via `.onChange` to navigate, then clears it (one-shot signal). No `.onAppear`
+  generation, so a tab switch back never re-analyzes.
+- The **Something else** row is present but static; its reroll behavior is T6.
 
 ---
 
 ### T5 — Navigation rewiring (single loader → Reflection + Choice)
-**Status:** `[ ]`  ·  **Depends on:** T4
+**Status:** `[x]`  ·  **Depends on:** T4
 
 **Goal:** Route the flow through the combined screen behind one loading state.
 
@@ -603,14 +648,26 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 **Files:** `AppDestination.swift`, the router/navigation glue, `BrainDumpView.swift`.
 
 **Done when:**
-- [ ] Dump → single loader → `ReflectionChoiceView` works end to end.
-- [ ] No intermediate auto-advancing reflection screen appears.
-- [ ] The old separate reflection/clarification screens are no longer reachable in the flow.
+- [x] Dump → single loader → `ReflectionChoiceView` works end to end.
+- [x] No intermediate auto-advancing reflection screen appears.
+- [x] The old separate reflection/clarification screens are no longer reachable in the flow.
+
+**Notes:**
+- `BrainDumpView.submit` now runs `extract` then `clarify` behind one loader
+  ("Working on your reflection..."), then appends `.reflectionChoice`. Non-actionable input
+  still shows the inline clarification prompt; errors still surface inline (T7 refines).
+- Added `.reflectionChoice` to `AppDestination`; kept `.reflection` / `.clarification` because
+  the Saved-tab "continue a step" path (`RecentStepDetailView`) still routes through them.
+  T11 removes the old views, destinations, and reworks/retires that path.
+- Verified live: dump → single loader → choice screen with real summary + 3 options (no
+  intermediate reflection screen). Closed the two deferred T4 gates: selecting the
+  overwhelmed/`.clarify` option produced a clarify-style next step (StuckMode forwarded), and
+  **Edit what I wrote** returned to the dump with the original text intact.
 
 ---
 
 ### T6 — "Something else" reroll
-**Status:** `[ ]`  ·  **Depends on:** T5
+**Status:** `[x]`  ·  **Depends on:** T5
 
 **Goal:** Implement the no-typing correction path (§5).
 
@@ -622,14 +679,22 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 **Files:** `ReflectionChoiceView.swift`, `AIService.swift`.
 
 **Done when:**
-- [ ] **Something else** produces 3 new options without any typed input.
-- [ ] Each regenerated set still has one option per `StuckMode`.
-- [ ] After a second pass, the UI surfaces **Edit what I wrote** more prominently.
+- [x] **Something else** produces 3 new options without any typed input.
+- [x] Each regenerated set still has one option per `StuckMode`.
+- [x] After a second pass, the UI surfaces **Edit what I wrote** more prominently.
+
+**Notes:**
+- Reroll reuses `AIService.clarify(extraction:)` — same situation, fresh set from model
+  nondeterminism. `ReflectionChoiceModel.somethingElse()` owns it (guarded against concurrent
+  reroll/generation); a distinct `isRerolling` flag drives a "Finding other options..." loader.
+- `rerollCount` drives the nudge: once ≥ 1, the link gains a hint line ("Still not quite right?…")
+  and stronger styling (tint, semibold). Verified live + via logs: both sets had exactly 3
+  options, one each for reproduce/narrow/clarify.
 
 ---
 
 ### T7 — Loading & partial-failure states
-**Status:** `[ ]`  ·  **Depends on:** T5
+**Status:** `[x]`  ·  **Depends on:** T5
 
 **Goal:** Make the combined load resilient (§11 acceptance criteria).
 
@@ -638,18 +703,36 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
   offer **retry** plus **Edit what I wrote** — do not dead-end on the loader.
 - If latency is high, hold the full-screen loader rather than showing partial reflection
   content.
+- Distinguish a model **content-safety refusal** (`GenerationError.Refusal`) from a transient
+  failure: a refusal will not succeed on retry, so show a "rephrase what you wrote" message and
+  route to **Edit what I wrote** rather than a "Please try again." that dead-ends the user
+  (see T3 notes).
 
 **Files:** `ReflectionChoiceView.swift`, navigation glue, loader overlay.
 
 **Done when:**
-- [ ] Simulated clarification failure shows summary + retry + **Edit what I wrote**.
-- [ ] Simulated extraction failure shows a concise error on the brain dump screen.
-- [ ] No state leaves the user stuck on a spinner.
+- [x] Simulated clarification failure shows summary + retry + **Edit what I wrote**.
+- [x] Simulated extraction failure shows a concise error on the brain dump screen.
+- [x] No state leaves the user stuck on a spinner.
+
+**Notes:**
+- `BrainDumpView` holds the single loader through `extract` + `clarify`. On clarify failure it
+  navigates anyway with `clarification: nil`; `ReflectionChoiceView` shows the summary +
+  "I couldn't load your options just now." + **Retry** + **Edit what I wrote**. Retry reruns
+  `clarify`; verified failure → retry → recovered options live (temp first-call failure, since
+  removed).
+- Extraction failures stay on the dump. A content-safety **refusal** is mapped to
+  `AIServiceError.contentRefused` ("…may be sensitive… Try rephrasing it.") and flagged
+  non-retryable (`isRetryable`), distinct from the transient "Please try again." Verified with a
+  real refusal (taxes + anxiety dump).
+- `ReflectionChoiceModel` consolidated its three async ops behind one `busyMessage`/`run(...)`
+  helper (replacing the separate `isGenerating`/`isRerolling` flags) so every path clears the
+  loader in both success and failure — no stuck spinner.
 
 ---
 
 ### T8 — Next Step screen
-**Status:** `[ ]`  ·  **Depends on:** T5
+**Status:** `[x]`  ·  **Depends on:** T5
 
 **Goal:** Finish S3 per §5 and `flow-3-next-step.svg`.
 
@@ -664,11 +747,24 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 **Files:** `NextStepView.swift`, recommended-steps store.
 
 **Done when:**
-- [ ] Screen matches `flow-3-next-step.svg`.
-- [ ] **Start this step** clears the draft and returns to the Unstick tab.
-- [ ] **I’m still stuck** reveals the fallback inline.
-- [ ] **Save for later** persists the step and it appears in the **Saved** tab with the badge
+- [x] Screen matches `flow-3-next-step.svg`.
+- [x] **Start this step** clears the draft and returns to the Unstick tab.
+- [x] **I’m still stuck** reveals the fallback inline.
+- [x] **Save for later** persists the step and it appears in the **Saved** tab with the badge
       incremented.
+
+**Notes:**
+- Logic extracted to `ViewModels/NextStepModel.swift` (still-stuck reveal/restart, save,
+  confirmation); the store is injected via `init` (since `@StateObject` can’t read
+  `@EnvironmentObject`), so `appDestinations` now takes a `store` parameter. Navigation (path
+  reset) and draft clearing stay in the view.
+- **Decision — "Come back tomorrow" omitted.** Mockup `flow-3-next-step.svg` shows only
+  **I’m still stuck** + **Save for later**, and T9 is not in scope, so per T8’s rule the control
+  is not rendered. `RecommendedStepStore.deferUntilTomorrow` remains for T9. The §13 open
+  question (ship the deferred flow now or later) is still open.
+- **Copy deviation — helper line.** §5 says "…not solve the whole app." Generalized to "…not
+  solve the whole **thing**", since the app handles non-coding situations (garage, taxes, novel)
+  where "app" is wrong. Flag if you want the literal wording.
 
 ---
 

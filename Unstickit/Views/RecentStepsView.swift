@@ -4,22 +4,38 @@ struct RecentStepsView: View {
     @Binding var path: NavigationPath
 
     @EnvironmentObject private var stepStore: RecommendedStepStore
-    @Environment(\.dismiss) private var dismiss
+    @Environment(AppNavigation.self) private var nav
+
+    @State private var pendingAction: PendingAction?
+
+    /// A destructive action that requires confirmation before it runs.
+    private enum PendingAction: Identifiable {
+        /// Delete a saved step (spec §4 — "Let go" requires confirmation for saved steps).
+        case delete(RecommendedStep)
+        /// Unsave a step whose 7-day window has already passed, so it deletes immediately.
+        case unsave(RecommendedStep)
+
+        var id: UUID {
+            switch self {
+            case .delete(let step), .unsave(let step): return step.id
+            }
+        }
+    }
 
     var body: some View {
         List {
-            if stepStore.activeSteps.isEmpty {
+            if stepStore.savedSteps.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("No recent steps")
+                    Text("No saved steps")
                         .font(.headline)
-                    Text("Steps you keep for later will show up here for a week.")
+                    Text("Steps you keep for later will show up here.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .listRowSeparator(.hidden)
                 .padding(.vertical, 12)
             } else {
-                ForEach(stepStore.activeSteps) { step in
+                ForEach(stepStore.savedSteps) { step in
                     NavigationLink {
                         RecentStepDetailView(step: step, path: $path)
                     } label: {
@@ -27,7 +43,7 @@ struct RecentStepsView: View {
                     }
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button {
-                            dismiss()
+                            nav.startUnstickFresh()
                         } label: {
                             Label("Start", systemImage: "play.fill")
                         }
@@ -35,37 +51,84 @@ struct RecentStepsView: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            stepStore.dismiss(step)
+                            requestLetGo(step)
                         } label: {
                             Label("Let go", systemImage: "trash")
                         }
 
-                        if step.isSaved {
-                            Button {
-                                stepStore.unsave(step)
-                            } label: {
-                                Label("Unsave", systemImage: "bookmark.slash")
-                            }
-                            .tint(.gray)
-                        } else {
-                            Button {
-                                stepStore.save(step)
-                            } label: {
-                                Label("Save", systemImage: "bookmark")
-                            }
-                            .tint(.blue)
+                        Button {
+                            requestUnsave(step)
+                        } label: {
+                            Label("Unsave", systemImage: "bookmark.slash")
+                        }
+                        .tint(.gray)
+                    }
+                    // Accessible equivalents for the swipe actions (spec §4).
+                    .contextMenu {
+                        Button {
+                            nav.startUnstickFresh()
+                        } label: {
+                            Label("Start", systemImage: "play.fill")
+                        }
+                        Button {
+                            requestUnsave(step)
+                        } label: {
+                            Label("Unsave", systemImage: "bookmark.slash")
+                        }
+                        Button(role: .destructive) {
+                            requestLetGo(step)
+                        } label: {
+                            Label("Let go", systemImage: "trash")
                         }
                     }
                 }
             }
         }
-        .navigationTitle("Recent steps")
+        .navigationTitle("Saved")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Delete saved step?",
+            isPresented: Binding(
+                get: { pendingAction != nil },
+                set: { if !$0 { pendingAction = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingAction
+        ) { action in
+            Button("Delete", role: .destructive) { perform(action) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This removes it from your saved steps.")
+        }
         .onAppear {
             Task { @MainActor in
                 await Task.yield()
                 stepStore.purgeExpired()
             }
+        }
+    }
+
+    /// The Saved tab shows saved steps only, so every "Let go" deletes a saved
+    /// step and must be confirmed (spec §4).
+    private func requestLetGo(_ step: RecommendedStep) {
+        pendingAction = .delete(step)
+    }
+
+    /// Unsaving sets `expiresAt` to 7 days after `createdAt`. If that moment has
+    /// already passed the step is deleted immediately, so confirm first (spec §4).
+    private func requestUnsave(_ step: RecommendedStep) {
+        let expiry = Calendar.current.date(byAdding: .day, value: 7, to: step.createdAt)
+        if let expiry, expiry <= Date() {
+            pendingAction = .unsave(step)
+        } else {
+            stepStore.unsave(step)
+        }
+    }
+
+    private func perform(_ action: PendingAction) {
+        switch action {
+        case .delete(let step): stepStore.dismiss(step)
+        case .unsave(let step): stepStore.unsave(step)
         }
     }
 }

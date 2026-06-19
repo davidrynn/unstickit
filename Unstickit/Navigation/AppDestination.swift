@@ -4,6 +4,7 @@ import SwiftUI
 enum AppDestination: Hashable {
     case reflection(ExtractionResult, brainDump: String)
     case clarification(extraction: ExtractionResult, clarification: ClarificationResult, brainDump: String)
+    case reflectionChoice(extraction: ExtractionResult, clarification: ClarificationResult?, brainDump: String)
     case nextStep(NextStepResult, brainDump: String)
 }
 

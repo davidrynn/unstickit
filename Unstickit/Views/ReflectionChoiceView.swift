@@ -1,0 +1,202 @@
+import SwiftUI
+
+struct ReflectionChoiceView: View {
+    let summary: String
+    let brainDump: String
+    @Binding var path: NavigationPath
+    @StateObject private var model: ReflectionChoiceModel
+
+    private let loadingFadeDuration = 0.14
+
+    init(
+        extraction: ExtractionResult,
+        clarification: ClarificationResult?,
+        brainDump: String,
+        path: Binding<NavigationPath>
+    ) {
+        self.summary = extraction.summary
+        self.brainDump = brainDump
+        self._path = path
+        self._model = StateObject(
+            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification)
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    summaryCard
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        sectionLabel("Which feels most true right now?")
+
+                        if model.options.isEmpty {
+                            optionsUnavailable
+                        } else {
+                            ForEach(model.options.indices, id: \.self) { i in
+                                ChoiceRow(label: model.options[i].label) {
+                                    model.select(model.options[i])
+                                }
+                            }
+
+                            ChoiceRow(label: "Something else") {
+                                model.somethingElse()
+                            }
+                        }
+                    }
+
+                    editLink
+
+                    if let error = model.errorMessage {
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+                .padding(24)
+            }
+            .disabled(model.isBusy)
+            .opacity(model.isBusy ? 0.18 : 1)
+
+            if model.isBusy {
+                FullScreenPauseLoaderOverlay(
+                    message: model.busyMessage ?? "",
+                    dotCount: 160
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: loadingFadeDuration), value: model.isBusy)
+        .navigationTitle("Here's what I'm hearing")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: model.generatedStep) { _, step in
+            guard let step else { return }
+            path.append(AppDestination.nextStep(step, brainDump: brainDump))
+            model.clearGeneratedStep()
+        }
+    }
+
+    /// Shown when clarification failed: keep the summary, explain, and offer a retry.
+    /// **Edit what I wrote** remains available below as the other way forward.
+    private var optionsUnavailable: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("I couldn't load your options just now.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+
+            Button {
+                model.retryOptions()
+            } label: {
+                Text("Retry")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Low-emphasis link by default; after a reroll (which adds no new signal) it
+    /// becomes the nudged path, with a hint and stronger styling.
+    @ViewBuilder
+    private var editLink: some View {
+        if model.rerollCount >= 1 {
+            VStack(spacing: 8) {
+                Text("Still not quite right? Editing what you wrote usually helps more than another set.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Edit what I wrote", action: editWhatIWrote)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.top, 4)
+        } else {
+            Button("Edit what I wrote", action: editWhatIWrote)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+        }
+    }
+
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Summary")
+            Text(summary)
+                .font(.title3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(18)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+    }
+
+    /// Return to the brain dump with the user's original text preserved. The dump
+    /// text lives in `@AppStorage`, so popping to root is enough to keep it intact.
+    private func editWhatIWrote() {
+        path = NavigationPath()
+    }
+}
+
+private struct ChoiceRow: View {
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(label)
+                    .font(.body)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+#Preview {
+    let extraction = ExtractionResult(
+        isActionable: true,
+        clarificationPrompt: nil,
+        goalSummary: "Finish the app",
+        blockers: [],
+        frictionSummary: "AI/SwiftUI bugs keep getting in the way",
+        whatINoticed: "You keep switching tools instead of isolating one bug",
+        summary: "You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear."
+    )
+    let clarification = ClarificationResult(options: [
+        ClarificationOption(label: "I keep trying fixes, but nothing works.", mode: .reproduce),
+        ClarificationOption(label: "I'm not sure where to begin or what the real cause is.", mode: .narrow),
+        ClarificationOption(label: "I feel overwhelmed and can't focus.", mode: .clarify)
+    ])
+    return NavigationStack {
+        ReflectionChoiceView(
+            extraction: extraction,
+            clarification: clarification,
+            brainDump: "I can't get my app finished",
+            path: .constant(NavigationPath())
+        )
+    }
+}

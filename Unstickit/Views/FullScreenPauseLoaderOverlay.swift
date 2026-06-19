@@ -1,5 +1,4 @@
 import SwiftUI
-import AnimationLoadersKit
 
 struct FullScreenPauseLoaderOverlay: View {
     let message: String

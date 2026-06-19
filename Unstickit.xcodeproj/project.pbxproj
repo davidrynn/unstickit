@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		8C9F4B372D7E4A1B9C0D1E2F /* AnimationLoadersKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8C9F4B372D7E4A1B9C0D1E31 /* AnimationLoadersKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,7 +56,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8C9F4B372D7E4A1B9C0D1E2F /* AnimationLoadersKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,9 +124,6 @@
 				22CC9F892F6701A000CD0459 /* Unstickit */,
 			);
 			name = Unstickit;
-			packageProductDependencies = (
-				8C9F4B372D7E4A1B9C0D1E31 /* AnimationLoadersKit */,
-			);
 			productName = Unstickit;
 			productReference = 22CC9F872F6701A000CD0459 /* Unstickit.app */;
 			productType = "com.apple.product-type.application";
@@ -211,9 +206,6 @@
 			);
 			mainGroup = 22CC9F7E2F6701A000CD0459;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				8C9F4B372D7E4A1B9C0D1E30 /* XCLocalSwiftPackageReference "../AnimationLoadersKit" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 22CC9F882F6701A000CD0459 /* Products */;
 			projectDirPath = "";
@@ -597,21 +589,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		8C9F4B372D7E4A1B9C0D1E30 /* XCLocalSwiftPackageReference "../AnimationLoadersKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../AnimationLoadersKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		8C9F4B372D7E4A1B9C0D1E31 /* AnimationLoadersKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8C9F4B372D7E4A1B9C0D1E30 /* XCLocalSwiftPackageReference "../AnimationLoadersKit" */;
-			productName = AnimationLoadersKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 22CC9F7F2F6701A000CD0459 /* Project object */;
 }

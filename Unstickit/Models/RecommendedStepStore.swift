@@ -26,6 +26,13 @@ final class RecommendedStepStore: ObservableObject {
         !activeSteps.isEmpty
     }
 
+    /// Intentionally saved steps only — drives the Saved tab badge.
+    var savedSteps: [RecommendedStep] {
+        steps
+            .filter { $0.status == .active && $0.isSaved }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     var dueDeferredStep: RecommendedStep? {
         let now = Date()
         return steps

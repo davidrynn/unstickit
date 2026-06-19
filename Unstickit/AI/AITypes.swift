@@ -28,6 +28,10 @@ struct ExtractionResult {
     /// A short non-obvious insight about what's really going on
     @Guide(description: "A single sentence beginning with 'I noticed' or 'Something I noticed' that surfaces a specific, non-obvious pattern or tension in the situation — something the user may not have named directly but that helps explain why they are stuck")
     var whatINoticed: String
+
+    /// Second-person display line shown on the Reflection + Choice screen (S2)
+    @Guide(description: "A single second-person sentence of at most 28 words that names what the user wants to accomplish and the friction getting in the way. One short paragraph. No diagnosis, no therapy language, no generic encouragement. Example: 'You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear.'")
+    var summary: String
 }
 
 @Generable
