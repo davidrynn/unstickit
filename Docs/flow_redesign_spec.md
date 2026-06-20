@@ -768,23 +768,61 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 
 ---
 
-### T9 — Come back tomorrow (deferred flow) — OPTIONAL
-**Status:** `[ ]`  ·  **Depends on:** T8  ·  **Gated by the §13 open question**
+### T9 — Come back tomorrow (deferred flow)
+**Status:** `[x]`  ·  **Depends on:** T8  ·  **Decision: ship (see §13)**
 
-**Goal:** Add the soft return point only if shipping it in this redesign.
+**Goal:** Add the soft return point.
 
 **Scope:** Implement per `come_back_tomorrow_spec.md` (defer creates one `RecommendedStep` with
 `source == .deferredTomorrow`, clears draft, optional reminder, return card on next launch).
+Per §14, the return card's **Start** / **Make it smaller** are a free resume and must never be
+paywalled.
 
 **Done when:**
-- [ ] Decision recorded: ship now or defer.
-- [ ] If shipping: meets `come_back_tomorrow_spec.md` §10 acceptance criteria.
-- [ ] If deferring: **Come back tomorrow** does not render on S3.
+- [x] Decision recorded: ship now (2026-06-19, §13).
+- [x] Meets `come_back_tomorrow_spec.md` §10 acceptance criteria. *(Verified live — see notes.)*
+
+**Notes:**
+- Storage was already in place from T8 (`deferUntilTomorrow`, `dueDeferredStep`,
+  `nextTomorrowAvailability`, `.deferredTomorrow`). T9 is the UI wiring on top.
+- **S3 control:** `NextStepView` adds a low-emphasis **Come back tomorrow** below **Save for
+  later**. Tapping it clears the draft and calls `NextStepModel.comeBackTomorrow()`, which
+  defers exactly one step and shows a `.medium` confirmation sheet (`DeferConfirmationView`):
+  "We'll hold this for tomorrow." + the §3 supporting copy, **Done**, and an optional
+  **Set reminder**. Dismissing the sheet (Done or swipe) returns to a fresh Unstick tab.
+- **Reminder:** `deferUntilTomorrow` now returns the computed `availableOn`; `DeferredReminder`
+  (new) requests notification authorization on demand and schedules one local notification
+  ("Unstuck" / "Ready to pick this back up?") at that date. Fully optional and non-blocking — a
+  denial just means no reminder; the in-app return card still surfaces the step. Local
+  notifications need no Info.plist key or entitlement.
+- **Return affordance:** `BrainDumpView` shows `DeferredReturnCard` above the prompt when
+  `stepStore.dueDeferredStep != nil`. **Collapsed by default to one quiet line** ("Pick up your
+  step" + disclosure chevron) so it never competes with the dump (§4); tapping the row expands
+  it ("Ready to pick this back up?" + step text + actions). Offers **Start** (hides the card for
+  the session; the step stays active per §7), **Make it smaller** (reveals `fallbackText` inline;
+  shown only when it exists; never regenerates), and **Let this go** (deletes immediately). Per
+  §14 these are a free resume and must never be paywalled.
+  - **Design revision (2026-06-19):** the first cut rendered the full multi-line card expanded by
+    default, which pushed the title/prompt below the fold — the exact "tile competes with the
+    primary job" problem §4 set out to fix. Reworked to the compact, tap-to-expand banner above
+    (Option A of three reviewed mockups). Verified live: collapsed line → expand → Start /
+    Make it smaller (reveals fallback, hides itself) / Let this go.
+- **Deviation from §9:** when both a restored draft and a due deferred step exist, §9 wants the
+  card *below* the draft; it currently renders above the prompt in both cases. Lower stakes now
+  that it is a single collapsed line. Flag if the §9 ordering still matters.
+- **Verified live** (iPhone 17 sim, on-device model): dump → choice → next step shows the new
+  **Come back tomorrow** control → confirmation sheet ("We'll hold this for tomorrow.") →
+  **Set reminder** fires the system notification prompt and flips to "✓ Reminder set" →
+  **Done** clears the draft and returns to a fresh Unstick tab, with no card shown (deferred
+  step not yet due, §9). Persisted record inspected: exactly one `deferredTomorrow` step,
+  `isSaved=false`, `availableOn` next day 05:00 (>6h out), `expiresAt` = createdAt + 7d. Return
+  card verified via a seeded due step: renders above the prompt; **Make it smaller** reveals the
+  fallback inline and hides itself; **Let this go** deletes it and removes the card.
 
 ---
 
 ### T10 — Tests
-**Status:** `[ ]`  ·  **Depends on:** T5, T8
+**Status:** `[x]`  ·  **Depends on:** T5, T8
 
 **Goal:** Lock in the behavior that matters.
 
@@ -796,13 +834,39 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 - Layout: S2 scrolls (no clipping) at the largest Dynamic Type size.
 
 **Done when:**
-- [ ] Tests cover each item above and pass.
-- [ ] AI-contract tests fail loudly if the schema regresses.
+- [x] Tests cover each item above and pass.
+- [x] AI-contract tests fail loudly if the schema regresses.
+
+**Notes:**
+- 20 Swift Testing cases in `UnstickitTests.swift`, all passing on iPhone 17 (iOS 26.5 sim).
+  Run: `xcodebuild test -scheme Unstickit -only-testing:UnstickitTests`.
+- **Testability constraint:** the three AI stages call on-device `FoundationModels` via the
+  `AIService.shared` singleton — non-deterministic and unavailable in CI, and not injectable. So
+  tests cover the deterministic logic *around* the model; the model calls themselves stay covered
+  by the live verifications recorded in T4/T5/T7/T9.
+- **Coverage by scope item:**
+  - *Navigation* — `AppNavigationTests` (startUnstickFresh / retry reset both paths + select
+    Unstick) and `AppDestinationTests` (`.reflectionChoice` carries an optional clarification;
+    distinct from `.nextStep`). The full dump→choice→step *traversal* runs through the model, so
+    it is covered by the T5/T9 live runs rather than a unit test.
+  - *Save behavior* — `SaveBehaviorTests` + `NextStepModelTests`: `saveForLater` adds exactly one
+    `savedSteps` entry (the badge source); deferring does **not** inflate the badge; dismiss
+    removes it.
+  - *AI contract* — `AIContractTests`: `ExtractionResult.summary` and `ClarificationResult.options`
+    are constructed directly (drop a field → won't compile), and `StuckMode` is pinned to exactly
+    `{reproduce, narrow, clarify}` via an exhaustive switch (add a case → won't compile). The
+    runtime "exactly 3 options" is model behavior (prompt-enforced, verified live).
+  - *Layout (S2 Dynamic Type)* — **not** an automated test: reaching S2 requires the live AI
+    flow and there is no snapshot lib / `AIService` injection point. Verified live at
+    `.accessibility5` in T4. Automating it would need either DI for `AIService` or a snapshot
+    dependency — out of T10 scope; flag if you want a follow-up ticket.
+- Also added deterministic T9 coverage: `DeferredStepTests` pins the 5 AM / 6-hour-floor
+  availability math, due-vs-not-due surfacing, and 7-day expiry purge.
 
 ---
 
 ### T11 — Cleanup
-**Status:** `[ ]`  ·  **Depends on:** T5–T8 stable
+**Status:** `[x]`  ·  **Depends on:** T5–T8 stable
 
 **Goal:** Remove dead code once the combined flow is proven.
 
@@ -811,9 +875,19 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 - Remove any now-unused MVP `ShareLink` save path.
 
 **Done when:**
-- [ ] Old reflection/clarification views and destinations are gone.
-- [ ] Project builds with no unused-symbol warnings from the removed flow.
-- [ ] Single save mechanism remains (the local store).
+- [x] Old reflection/clarification views and destinations are gone.
+- [x] Project builds with no unused-symbol warnings from the removed flow.
+- [x] Single save mechanism remains (the local store).
+
+**Notes:**
+- Deleted `ReflectionView.swift` and `ClarificationView.swift`; removed the `.reflection` and
+  `.clarification` cases from `AppDestination` and their switch arms in `RootTabView`.
+- **Last consumer reworked:** the saved-step "continue" path (`RecentStepDetailView.submit()`)
+  was the only remaining caller of `.reflection`. It now mirrors `BrainDumpView`: extraction +
+  best-effort clarification behind one loader → `.reflectionChoice(...)`, so saved steps flow
+  through the same combined screen (with the T7 retry-on-clarify-failure behavior).
+- `ShareLink` was already gone — the local `RecommendedStepStore` is the single save mechanism.
+- Build clean (no warnings), `grep` confirms no dangling references, all 20 T10 tests pass.
 
 ---
 
@@ -830,9 +904,40 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
   `ShareLink`-based "Save this step." Ship one save mechanism, not both. Note this pulls a
   slice of the post-MVP "session history" scope forward.
 
+- **Come back tomorrow** ships in this redesign (T9). Resolved 2026-06-19: the deferred flow is
+  a genuine day-2 retention affordance and it makes the planned monetization (see below) feel
+  fair rather than punitive, so it is built now rather than left behind its own spec.
+
+## 14. Monetization (recommendation, not yet built)
+
+The product will be monetized with a paywall around **new** unstick flows. The exact free
+allowance (e.g. first flow free, or N free dumps) is a tuning decision and is not specified
+here; what matters for the design is **where** the gate sits.
+
+**Recommendation — gate new dumps, never the return/resume of a deferred step.**
+
+When a free user defers a step with **Come back tomorrow** and returns the next day, tapping
+**Start** / **Make it smaller** on the return card must *not* hit the paywall. That moment is
+the payoff the deferred flow promised ("When you come back, we'll start from this step",
+`come_back_tomorrow_spec.md` §3), and its whole design ethos is no guilt, no pressure
+(`come_back_tomorrow_spec.md` §1, §4). Paywalling it turns a trust affordance into a
+bait-and-switch and will read as manipulative.
+
+So:
+
+- **Paywalled:** starting a *new* brain dump / **Find my next step** (subject to the free
+  allowance).
+- **Always free:** resuming a deferred or saved step from the return card or the Saved tab —
+  the user already "paid" for that one in attention.
+
+This funnel still works for conversion: the free day-2 win brings the user back into the app,
+where a *new* dump is the natural, fair place to surface the paywall at a high-intent moment.
+
+The paywall itself is **not implemented in this redesign** — this section records the intended
+placement so the deferred flow (T9) is not later wired to gate the wrong moment.
+
 ### Still open
 
-- Does the **Come back tomorrow** deferred flow (`come_back_tomorrow_spec.md`) ship in this
-  redesign, or stay behind its own spec? It is a soft return point with an optional reminder,
-  not a "pause." Secondary actions on S3 should only render the controls that actually exist.
+- Free allowance tuning for §14 (first flow free vs. N free dumps vs. trial). Does not affect
+  T9 — only where/when the future paywall triggers on *new* dumps.
 

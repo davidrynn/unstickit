@@ -10,6 +10,7 @@ struct BrainDumpView: View {
     @State private var clarificationPrompt: String? = nil
     @State private var errorMessage: String? = nil
     @State private var showClearConfirmation = false
+    @State private var deferredCardDismissed = false
 
     private let loadingFadeDuration = 0.14
     private let loadingFadeDelayNanoseconds: UInt64 = 140_000_000
@@ -22,6 +23,19 @@ struct BrainDumpView: View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
+                    // Soft return point for a step deferred yesterday
+                    // (come_back_tomorrow_spec.md §7). Shown above the prompt.
+                    if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed {
+                        DeferredReturnCard(
+                            step: deferred,
+                            onStart: { deferredCardDismissed = true },
+                            onLetGo: {
+                                stepStore.dismiss(deferred)
+                                deferredCardDismissed = true
+                            }
+                        )
+                    }
+
                     VStack(alignment: .leading, spacing: 16) {
                         SandTextView(text: "Unstick",
                                      seed: 23,
@@ -193,5 +207,91 @@ struct BrainDumpView: View {
             try? await Task.sleep(nanoseconds: loadingFadeDelayNanoseconds)
             action()
         }
+    }
+}
+
+/// Lightweight return affordance for a step the user deferred yesterday
+/// (come_back_tomorrow_spec.md §7). Collapsed to one quiet line by default so it
+/// never competes with the brain dump (flow_redesign_spec.md §4); tapping the row
+/// expands the actions. **Start** and **Make it smaller** are a free resume and are
+/// never paywalled (flow_redesign_spec.md §14).
+private struct DeferredReturnCard: View {
+    let step: RecommendedStep
+    let onStart: () -> Void
+    let onLetGo: () -> Void
+
+    @State private var expanded = false
+    @State private var showSmaller = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 12 : 0) {
+            // Quiet header row — tap to expand/collapse.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.uturn.up")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.tint)
+                    Text(expanded ? "Ready to pick this back up?" : "Pick up your step")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                Text(step.text)
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if showSmaller, let fallbackText = step.fallbackText {
+                    Text(fallbackText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color(.tertiarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                HStack(spacing: 16) {
+                    Button(action: onStart) {
+                        Text("Start")
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+
+                    // Only when a smaller step exists; never regenerate from here (§7).
+                    if step.fallbackText != nil && !showSmaller {
+                        Button("Make it smaller") {
+                            withAnimation(.easeInOut(duration: 0.2)) { showSmaller = true }
+                        }
+                        .font(.subheadline)
+                    }
+
+                    Spacer()
+
+                    Button("Let this go", role: .destructive, action: onLetGo)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(expanded ? 16 : 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

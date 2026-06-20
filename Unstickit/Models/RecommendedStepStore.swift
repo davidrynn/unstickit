@@ -73,18 +73,23 @@ final class RecommendedStepStore: ObservableObject {
         )
     }
 
-    func deferUntilTomorrow(text: String, fallbackText: String?, brainDump: String) {
+    /// Defers the step to tomorrow and returns when it becomes available again,
+    /// so callers can schedule an optional reminder for that moment.
+    @discardableResult
+    func deferUntilTomorrow(text: String, fallbackText: String?, brainDump: String) -> Date {
         let now = Date()
+        let availableOn = Self.nextTomorrowAvailability(from: now, calendar: calendar)
         addStep(
             text: text,
             fallbackText: fallbackText,
             source: .deferredTomorrow,
             brainDump: brainDump,
             createdAt: now,
-            availableOn: Self.nextTomorrowAvailability(from: now, calendar: calendar),
+            availableOn: availableOn,
             expiresAt: calendar.date(byAdding: .day, value: 7, to: now),
             isSaved: false
         )
+        return availableOn
     }
 
     func dismiss(_ step: RecommendedStep) {

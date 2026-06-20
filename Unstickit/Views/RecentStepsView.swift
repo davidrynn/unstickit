@@ -281,14 +281,26 @@ private struct RecentStepDetailView: View {
 
         Task {
             do {
-                let result = try await AIService.shared.extract(from: context)
+                // Mirror BrainDumpView: extraction + best-effort clarification behind one
+                // loader, then route through the combined Reflection + Choice screen.
+                let extraction = try await AIService.shared.extract(from: context)
+                guard extraction.isActionable else {
+                    await MainActor.run {
+                        isLoading = false
+                        errorMessage = extraction.clarificationPrompt ?? "Add a little more context before continuing."
+                    }
+                    return
+                }
+                // If clarification fails, the combined screen still shows the summary and
+                // offers a retry (T7) — don't dead-end here.
+                let clarification = try? await AIService.shared.clarify(extraction: extraction)
                 await MainActor.run {
                     isLoading = false
-                    if result.isActionable {
-                        path.append(AppDestination.reflection(result, brainDump: context))
-                    } else {
-                        errorMessage = result.clarificationPrompt ?? "Add a little more context before continuing."
-                    }
+                    path.append(AppDestination.reflectionChoice(
+                        extraction: extraction,
+                        clarification: clarification,
+                        brainDump: context
+                    ))
                 }
             } catch {
                 await MainActor.run {

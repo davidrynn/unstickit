@@ -179,6 +179,13 @@ If `fallbackText` is missing, hide **Make it smaller**. Do not regenerate from t
 
 If multiple deferred steps exist, show only the most recent one in the return card. Older unexpired steps remain available in **Recent steps**.
 
+### Monetization boundary
+
+If a paywall is added (see `flow_redesign_spec.md` §14), the return card is a **free resume**:
+**Start** and **Make it smaller** must never be gated. The user already engaged with this step;
+the deferred flow promised it would be here for them. Gate only *new* brain dumps, not the
+continuation of a deferred or saved step.
+
 ---
 
 ## 8. Notifications
