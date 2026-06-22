@@ -1,0 +1,69 @@
+<svg width="945" height="1679" viewBox="0 0 945 1679" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg { fill: #fbfbfc; }
+      .screenTitle { font: 700 40px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #111111; }
+      .section { font: 700 28px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #7d828c; }
+      .body { font: 400 39px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #111111; }
+      .option { font: 400 35px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #111111; }
+      .link { font: 500 28px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #5e6f96; }
+      .time { font: 700 39px -apple-system, BlinkMacSystemFont, "SF Pro Display", Arial, sans-serif; fill: #050505; }
+    </style>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.075"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="945" height="1679" rx="48"/>
+
+  <text class="time" x="116" y="83">6:28</text>
+  <rect x="320" y="25" width="306" height="94" rx="47" fill="#000"/>
+  <circle cx="695" cy="77" r="4" fill="#c7c7cc"/>
+  <circle cx="708" cy="77" r="4" fill="#c7c7cc"/>
+  <circle cx="721" cy="77" r="4" fill="#c7c7cc"/>
+  <path d="M748 65c22-18 54-18 76 0" fill="none" stroke="#000" stroke-width="8" stroke-linecap="round"/>
+  <path d="M760 78c15-11 36-11 51 0" fill="none" stroke="#000" stroke-width="8" stroke-linecap="round"/>
+  <rect x="811" y="57" width="52" height="28" rx="8" fill="none" stroke="#111" stroke-width="4"/>
+  <rect x="817" y="62" width="40" height="18" rx="5" fill="#111"/>
+
+  <circle cx="88" cy="193" r="42" fill="#ffffff" filter="url(#softShadow)"/>
+  <path d="M101 171l-25 25 25 25" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="screenTitle" x="472" y="209" text-anchor="middle">Here's what I'm hearing</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="72" y="292" width="801" height="378" rx="22" fill="#ffffff"/>
+    <text class="section" x="123" y="369">SUMMARY</text>
+    <text class="body" x="123" y="442">You want to finish your app, but</text>
+    <text class="body" x="123" y="500">AI/SwiftUI bugs keep making the</text>
+    <text class="body" x="123" y="558">next step feel unclear.</text>
+  </g>
+
+  <text class="section" x="88" y="779">WHICH FEELS MOST TRUE RIGHT NOW?</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="72" y="812" width="801" height="142" rx="20" fill="#ffffff"/>
+    <text class="option" x="123" y="898">I keep trying fixes, but nothing works.</text>
+    <path d="M820 873l17 18-17 18" fill="none" stroke="#8e8e93" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="72" y="974" width="801" height="182" rx="20" fill="#ffffff"/>
+    <text class="option" x="123" y="1051">I'm not sure where to begin or what</text>
+    <text class="option" x="123" y="1103">the real cause is.</text>
+    <path d="M820 1047l17 18-17 18" fill="none" stroke="#8e8e93" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="72" y="1176" width="801" height="142" rx="20" fill="#ffffff"/>
+    <text class="option" x="123" y="1262">I feel overwhelmed and can't focus.</text>
+    <path d="M820 1237l17 18-17 18" fill="none" stroke="#8e8e93" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="72" y="1338" width="801" height="142" rx="20" fill="#ffffff"/>
+    <text class="option" x="123" y="1424">Something else</text>
+    <path d="M820 1399l17 18-17 18" fill="none" stroke="#8e8e93" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text class="link" x="472" y="1560" text-anchor="middle">Edit what I wrote</text>
+</svg>

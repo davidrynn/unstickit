@@ -1,13 +1,24 @@
-# Unstuck — MVP Spec
+# Unstick — MVP Spec
 
 ## Status
 **Draft** — derived from Plan Iteration 3 + resolved open questions
+
+> **Partially superseded by `flow_redesign_spec.md` (2026-06-15).** The redesign is the source
+> of truth for the post-dump flow and navigation. Specifically, it replaces:
+> - §3 S2 (Reflection) and S3 (Clarification) — now one combined **Reflection + Choice** screen
+> - §3 S1 CTA "Help me think this through" — now **Find my next step**
+> - §3 S4 "Save this step" via `ShareLink` — now **Save for later** via a local
+>   `RecommendedStepStore` surfaced in a **Saved** tab
+> - the single-screen root — now a **TabView** (Unstick / Saved)
+>
+> Sections below marked _(superseded)_ are retained for rationale only. The AI contracts (§5)
+> and draft persistence remain in force except where the redesign amends them.
 
 ---
 
 ## 1. Product Summary
 
-**App name:** Unstuck
+**App name:** Unstick
 **Core promise:** When you're stuck, the app gets you back to working.
 **Primary goal:** Re-engagement — get the user back in motion. The step does not need to be
 the right step. It does not need to move toward the solution. It just needs to be easier to
@@ -30,7 +41,7 @@ do than to avoid, so the user gets back in the saddle.
 Shown when device does not meet requirements.
 
 **Content:**
-- Title: "Unstuck requires Apple Intelligence"
+- Title: "Unstick requires Apple Intelligence"
 - Body: brief explanation of the requirement
 - Link to Apple's Apple Intelligence settings (deep link if available)
 
@@ -39,13 +50,14 @@ Shown when device does not meet requirements.
 ---
 
 ### S1 — Brain Dump
-The entry point and root of the app.
+The entry point and root of the app. _(Copy/CTA superseded — see flow_redesign_spec.md §5
+"S1 — Brain Dump." Draft-persistence behavior below remains in force.)_
 
 **Content:**
-- Title: **Unstuck**
+- Title: **Unstick**
 - Prompt: **What are you stuck on?**
 - Large multiline text input (autosaved to draft on every change)
-- CTA button: **Help me think this through**
+- CTA button: **Find my next step** _(was "Help me think this through")_
 - Inline clarification area (hidden by default — shown if `isActionable == false`)
 
 **States:**
@@ -66,7 +78,7 @@ The entry point and root of the app.
 
 ---
 
-### S2 — Reflection
+### S2 — Reflection _(superseded — see flow_redesign_spec.md §5 "S2 — Reflection + Choice")_
 Shows what the AI extracted from the brain dump.
 
 **Content:**
@@ -86,7 +98,7 @@ Shows what the AI extracted from the brain dump.
 
 ---
 
-### S3 — Clarification
+### S3 — Clarification _(superseded — folded into flow_redesign_spec.md §5 "S2 — Reflection + Choice")_
 Presents 3 tappable options describing how the user feels stuck. The user taps one — no typing required.
 
 **Content:**
@@ -121,8 +133,8 @@ The primary output screen.
 - Fallback area (hidden by default)
 
 **States:**
-- **Default** — shows `nextStep`, "Start", "I'm still stuck"
-- **Fallback revealed** — shows `nextStep` + `fallbackStep`, "Start", "I'm still stuck"
+- **Default** — shows `nextStep`, "Start", "I'm still stuck", "Save this step"
+- **Fallback revealed** — shows `nextStep` + `fallbackStep`, "Start", "I'm still stuck", "Save this step"
 - **Give up** — second tap of "I'm still stuck" clears draft and returns to S1
 
 **Transitions:**
@@ -130,10 +142,21 @@ The primary output screen.
 - Tap "I'm still stuck" (first time) → reveal `fallbackStep` inline
 - Tap "I'm still stuck" (second time) → clear draft → S1 (pre-fill brain dump for retry)
 - Tap "Start" after fallback shown → clear draft → S1 (fresh)
+- Tap "Save this step" → opens system share sheet with `nextStep` text (user chooses destination)
+
+**Save this step:**
+- Implemented with SwiftUI `ShareLink(item: nextStep)` — no permissions, no entitlements, no Info.plist changes
+- User chooses destination from the share sheet (Reminders, Notes, Messages, copy, etc.)
+- Button is tertiary / low-emphasis — it should not compete with "Start"
 
 ---
 
 ## 4. State Machine
+
+> _(Superseded — see flow_redesign_spec.md §4–5. The S2/S3 rows below describe the old
+> two-screen flow now folded into one Reflection + Choice screen; the "Save this step →
+> Reminders" rows are replaced by **Save for later** to a local `RecommendedStepStore`.
+> Retained for the S1 and draft-clearing transitions, which still hold.)_
 
 | Screen | Action | Next State | Notes |
 |--------|--------|------------|-------|
@@ -148,8 +171,10 @@ The primary output screen.
 | S3 loading | Stage 3 complete | S4 | |
 | S4 default | Tap "Start" | S1 fresh | Clear draft |
 | S4 default | Tap "I'm still stuck" (1st) | S4 fallback | Reveal fallbackStep |
+| S4 default | Tap "Save this step" | S4 default | Save nextStep to Reminders; show inline confirmation |
 | S4 fallback | Tap "Start" | S1 fresh | Clear draft |
 | S4 fallback | Tap "I'm still stuck" (2nd) | S1 pre-filled | Pre-fill brain dump, clear draft |
+| S4 fallback | Tap "Save this step" | S4 fallback | Save nextStep to Reminders; show inline confirmation |
 
 ---
 
@@ -280,6 +305,13 @@ Draft is the only persistence in MVP. No completed session storage.
 - [ ] Draft is cleared after tapping "Start" on S4
 - [ ] Draft is pre-populated when returning to S1 via "I'm still stuck" (second tap)
 
+### Save this step _(superseded — see flow_redesign_spec.md §5 "S3 — One Next Step")_
+The MVP `ShareLink`/Reminders save path is replaced by **Save for later**, which stores the
+step in a local `RecommendedStepStore` and updates the **Saved** tab badge. The criteria below
+are retained only for historical rationale:
+- [ ] ~~"Save this step" button opens the system share sheet with `nextStep` as shared text~~
+- [ ] Button does not clear the draft or navigate away _(still true of **Save for later**)_
+
 ### Edge cases
 - [ ] Ineligible device shows S0 and blocks entry
 - [ ] Low-confidence brain dump shows inline clarification prompt on S1
@@ -301,7 +333,6 @@ Draft is the only persistence in MVP. No completed session storage.
 - Cloud sync or multi-device
 - Edit-and-regenerate (partial re-run)
 - Team or sharing features
-- Notifications or reminders
 - Long-term planning or project tracking
 - Deep coaching or therapy behavior
 - Cloud AI fallback
