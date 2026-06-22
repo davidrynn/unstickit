@@ -4,76 +4,77 @@ struct ReflectionChoiceView: View {
     let summary: String
     let brainDump: String
     @Binding var path: NavigationPath
+    /// Shared loader state; held as a plain reference so the model can be built in
+    /// `init` (where `@Environment` isn't yet available). Observation still tracks
+    /// `nav.loadingMessage` accesses made in `body`.
+    private let nav: AppNavigation
     @StateObject private var model: ReflectionChoiceModel
 
-    private let loadingFadeDuration = 0.14
+    private var isLoading: Bool { nav.loadingMessage != nil }
 
     init(
         extraction: ExtractionResult,
         clarification: ClarificationResult?,
         brainDump: String,
-        path: Binding<NavigationPath>
+        path: Binding<NavigationPath>,
+        nav: AppNavigation
     ) {
         self.summary = extraction.summary
         self.brainDump = brainDump
         self._path = path
+        self.nav = nav
         self._model = StateObject(
-            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification)
+            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification, nav: nav)
         )
     }
 
     var body: some View {
-        ZStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    summaryCard
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                summaryCard
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        sectionLabel("Which feels most true right now?")
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionLabel("Which feels most true right now?")
 
-                        if model.options.isEmpty {
-                            optionsUnavailable
-                        } else {
-                            ForEach(model.options.indices, id: \.self) { i in
-                                ChoiceRow(label: model.options[i].label) {
-                                    model.select(model.options[i])
-                                }
-                            }
-
-                            ChoiceRow(label: "Something else") {
-                                model.somethingElse()
+                    if model.options.isEmpty {
+                        optionsUnavailable
+                    } else {
+                        ForEach(model.options.indices, id: \.self) { i in
+                            ChoiceRow(label: model.options[i].label) {
+                                model.select(model.options[i])
                             }
                         }
-                    }
 
-                    editLink
-
-                    if let error = model.errorMessage {
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                        ChoiceRow(label: "Something else") {
+                            model.somethingElse()
+                        }
                     }
                 }
-                .padding(24)
-            }
-            .disabled(model.isBusy)
-            .opacity(model.isBusy ? 0.18 : 1)
 
-            if model.isBusy {
-                FullScreenPauseLoaderOverlay(
-                    message: model.busyMessage ?? "",
-                    dotCount: 160
-                )
-                .transition(.opacity)
+                editLink
+
+                if let error = model.errorMessage {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
+            .padding(24)
         }
-        .animation(.easeInOut(duration: loadingFadeDuration), value: model.isBusy)
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.18 : 1)
+        .animation(.easeInOut(duration: 0.14), value: isLoading)
         .navigationTitle("Here's what I'm hearing")
         .navigationBarTitleDisplayMode(.inline)
+        // Clear the loader the inbound transition (dump → here) raised, now that this
+        // screen is on-screen. The shared overlay lives at the tab-shell root.
+        .onAppear { nav.loadingMessage = nil }
         .onChange(of: model.generatedStep) { _, step in
             guard let step else { return }
-            path.append(AppDestination.nextStep(step, brainDump: brainDump))
+            // Non-animated push so the loader hides the navigation entirely
+            // (cleared by NextStepView.onAppear).
+            nav.pushBehindLoader(.nextStep(step, brainDump: brainDump), path: $path)
             model.clearGeneratedStep()
         }
     }
@@ -196,7 +197,8 @@ private struct ChoiceRow: View {
             extraction: extraction,
             clarification: clarification,
             brainDump: "I can't get my app finished",
-            path: .constant(NavigationPath())
+            path: .constant(NavigationPath()),
+            nav: AppNavigation()
         )
     }
 }

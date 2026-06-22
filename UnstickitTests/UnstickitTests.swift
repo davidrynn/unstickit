@@ -269,7 +269,7 @@ struct ReflectionChoiceModelTests {
             ClarificationOption(label: "I'm not sure where to start.", mode: .narrow),
             ClarificationOption(label: "I feel overwhelmed.", mode: .clarify),
         ])
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification)
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification, nav: AppNavigation())
 
         #expect(m.options.count == 3)
         #expect(m.optionsFailed == false)
@@ -278,7 +278,7 @@ struct ReflectionChoiceModelTests {
 
     @Test func initWithNilClarificationFlagsFailureForRetry() {
         // T7: clarification failed but extraction succeeded → screen shows summary + retry.
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil)
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil, nav: AppNavigation())
         #expect(m.options.isEmpty)
         #expect(m.optionsFailed == true)
     }

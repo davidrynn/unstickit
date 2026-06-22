@@ -106,6 +106,9 @@ struct NextStepView: View {
         .navigationTitle("Here's your next step")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.3), value: model.fallbackRevealed)
+        // Clear the "Generating your next step..." loader now that this screen is
+        // on-screen — the shared overlay stayed up through the push transition.
+        .onAppear { nav.loadingMessage = nil }
         // Dismissing the confirmation (Done or swipe-down) returns to a fresh
         // Unstick tab; the deferred step is already stored.
         .sheet(isPresented: $model.deferConfirmationShown, onDismiss: finish) {

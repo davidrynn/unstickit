@@ -6,23 +6,22 @@ struct BrainDumpView: View {
     @EnvironmentObject private var stepStore: RecommendedStepStore
     @Environment(AppNavigation.self) private var nav
     @AppStorage("draft_brain_dump") private var draft: String = ""
-    @State private var isLoading = false
     @State private var clarificationPrompt: String? = nil
     @State private var errorMessage: String? = nil
     @State private var showClearConfirmation = false
     @State private var deferredCardDismissed = false
 
-    private let loadingFadeDuration = 0.14
-    private let loadingFadeDelayNanoseconds: UInt64 = 140_000_000
+    /// The loader is shared state now (see `AppNavigation.loadingMessage`) so it can
+    /// persist across the push to the choice screen; this screen only reads it.
+    private var isLoading: Bool { nav.loadingMessage != nil }
 
     private var trimmedDraft: String {
         draft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        ZStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
                     // Soft return point for a step deferred yesterday
                     // (come_back_tomorrow_spec.md §7). Shown above the prompt.
                     if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed {
@@ -95,16 +94,9 @@ struct BrainDumpView: View {
                 }
                 .padding(24)
             }
-            .disabled(isLoading)
-            .opacity(isLoading ? 0.18 : 1)
-
-            if isLoading {
-                FullScreenPauseLoaderOverlay(message: "Working on your reflection...",
-                                            dotCount: 180)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: loadingFadeDuration), value: isLoading)
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.18 : 1)
+        .animation(.easeInOut(duration: 0.14), value: isLoading)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -153,9 +145,10 @@ struct BrainDumpView: View {
             return
         }
 
-        withAnimation(.easeInOut(duration: loadingFadeDuration)) {
-            isLoading = true
-        }
+        // Show the shared loader and keep it up across the push: the destination
+        // (`ReflectionChoiceView`) clears `nav.loadingMessage` in its `.onAppear`,
+        // so it never blinks off mid-transition.
+        nav.loadingMessage = "Working on your reflection..."
         errorMessage = nil
         clarificationPrompt = nil
 
@@ -166,11 +159,8 @@ struct BrainDumpView: View {
                 let extraction = try await AIService.shared.extract(from: trimmed)
 
                 guard extraction.isActionable else {
-                    await MainActor.run {
-                        finishLoading {
-                            clarificationPrompt = extraction.clarificationPrompt
-                        }
-                    }
+                    nav.loadingMessage = nil
+                    clarificationPrompt = extraction.clarificationPrompt
                     return
                 }
 
@@ -178,34 +168,20 @@ struct BrainDumpView: View {
                 // succeeded), still advance to the choice screen with the summary and
                 // let that screen offer a retry — don't dead-end on the dump.
                 let clarification = try? await AIService.shared.clarify(extraction: extraction)
-                await MainActor.run {
-                    finishLoading {
-                        path.append(AppDestination.reflectionChoice(
-                            extraction: extraction,
-                            clarification: clarification,
-                            brainDump: trimmed
-                        ))
-                    }
-                }
+                // Non-animated push so the loader hides the navigation entirely
+                // (cleared by ReflectionChoiceView.onAppear).
+                nav.pushBehindLoader(
+                    .reflectionChoice(
+                        extraction: extraction,
+                        clarification: clarification,
+                        brainDump: trimmed
+                    ),
+                    path: $path
+                )
             } catch {
-                await MainActor.run {
-                    finishLoading {
-                        errorMessage = error.localizedDescription
-                    }
-                }
+                nav.loadingMessage = nil
+                errorMessage = error.localizedDescription
             }
-        }
-    }
-
-    @MainActor
-    private func finishLoading(_ action: @escaping () -> Void) {
-        withAnimation(.easeInOut(duration: loadingFadeDuration)) {
-            isLoading = false
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: loadingFadeDelayNanoseconds)
-            action()
         }
     }
 }

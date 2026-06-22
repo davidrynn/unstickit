@@ -174,20 +174,23 @@ private struct RecentStepDetailView: View {
     let step: RecommendedStep
     @Binding var path: NavigationPath
 
+    @Environment(AppNavigation.self) private var nav
     @State private var addedContext = ""
-    @State private var isLoading = false
     @State private var errorMessage: String? = nil
+
+    /// Shared loader (see `AppNavigation.loadingMessage`) so it persists across the
+    /// push to the combined screen, cleared by `ReflectionChoiceView.onAppear`.
+    private var isLoading: Bool { nav.loadingMessage != nil }
 
     private var trimmedContext: String {
         addedContext.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        ZStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Issue")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Issue")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
@@ -258,15 +261,8 @@ private struct RecentStepDetailView: View {
                 }
                 .padding(24)
             }
-            .disabled(isLoading)
-            .opacity(isLoading ? 0.18 : 1)
-
-            if isLoading {
-                FullScreenPauseLoaderOverlay(message: "Working on your reflection...",
-                                            dotCount: 180)
-                    .transition(.opacity)
-            }
-        }
+        .disabled(isLoading)
+        .opacity(isLoading ? 0.18 : 1)
         .navigationTitle("Recent step")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.14), value: isLoading)
@@ -274,7 +270,8 @@ private struct RecentStepDetailView: View {
 
     private func submit() {
         guard !trimmedContext.isEmpty else { return }
-        isLoading = true
+        // Shared loader, held up across the push; cleared by ReflectionChoiceView.onAppear.
+        nav.loadingMessage = "Working on your reflection..."
         errorMessage = nil
 
         let context = nextStepContext(additionalContext: trimmedContext)
@@ -285,28 +282,26 @@ private struct RecentStepDetailView: View {
                 // loader, then route through the combined Reflection + Choice screen.
                 let extraction = try await AIService.shared.extract(from: context)
                 guard extraction.isActionable else {
-                    await MainActor.run {
-                        isLoading = false
-                        errorMessage = extraction.clarificationPrompt ?? "Add a little more context before continuing."
-                    }
+                    nav.loadingMessage = nil
+                    errorMessage = extraction.clarificationPrompt ?? "Add a little more context before continuing."
                     return
                 }
                 // If clarification fails, the combined screen still shows the summary and
                 // offers a retry (T7) — don't dead-end here.
                 let clarification = try? await AIService.shared.clarify(extraction: extraction)
-                await MainActor.run {
-                    isLoading = false
-                    path.append(AppDestination.reflectionChoice(
+                // Non-animated push so the loader hides the navigation entirely
+                // (cleared by ReflectionChoiceView.onAppear).
+                nav.pushBehindLoader(
+                    .reflectionChoice(
                         extraction: extraction,
                         clarification: clarification,
                         brainDump: context
-                    ))
-                }
+                    ),
+                    path: $path
+                )
             } catch {
-                await MainActor.run {
-                    isLoading = false
-                    errorMessage = error.localizedDescription
-                }
+                nav.loadingMessage = nil
+                errorMessage = error.localizedDescription
             }
         }
     }
