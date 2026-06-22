@@ -143,21 +143,43 @@ actor AIService {
         }
 
         // The small on-device model often returns duplicate modes (e.g. clarify ×2,
-        // no reproduce), which violates the "one per StuckMode" contract (spec §6) and
-        // skews option variety. Validate coverage and do at most one repair reroll;
-        // keep the best-effort set rather than dead-ending if the model still misbehaves.
+        // no reproduce) or the wrong count, which violates the "exactly 3, one per
+        // StuckMode" contract (spec §6). Normalize to one option per mode; if a mode is
+        // missing, do one repair reroll. Keep a deduped best-effort set rather than
+        // dead-ending (or showing duplicate-mode rows) if the model still misbehaves.
         let first = try await requestClarification(extraction: extraction)
-        if distinctModeCount(first) == StuckMode.allModes.count {
-            return first
+        if let complete = oneOptionPerMode(first) {
+            return complete
         }
         guard let second = try? await requestClarification(extraction: extraction) else {
-            return first
+            return dedupByMode(first)
         }
-        return distinctModeCount(second) > distinctModeCount(first) ? second : first
+        if let complete = oneOptionPerMode(second) {
+            return complete
+        }
+        // Neither attempt covered all three modes — return whichever deduped set has more.
+        let a = dedupByMode(first)
+        let b = dedupByMode(second)
+        return b.options.count > a.options.count ? b : a
     }
 
-    private func distinctModeCount(_ result: ClarificationResult) -> Int {
-        Set(result.options.map(\.mode)).count
+    /// Exactly 3 options, one per `StuckMode` in canonical order, or `nil` if any mode
+    /// is missing. Drops duplicates and extras.
+    private func oneOptionPerMode(_ result: ClarificationResult) -> ClarificationResult? {
+        var picked: [ClarificationOption] = []
+        for mode in StuckMode.allModes {
+            guard let option = result.options.first(where: { $0.mode == mode }) else { return nil }
+            picked.append(option)
+        }
+        return ClarificationResult(options: picked)
+    }
+
+    /// Keep the first option for each mode, so no two rows share a `StuckMode` even when
+    /// the set is incomplete (1–2 options).
+    private func dedupByMode(_ result: ClarificationResult) -> ClarificationResult {
+        var seen = Set<StuckMode>()
+        let kept = result.options.filter { seen.insert($0.mode).inserted }
+        return ClarificationResult(options: kept)
     }
 
     private func requestClarification(extraction: ExtractionResult) async throws -> ClarificationResult {
@@ -328,6 +350,11 @@ actor AIService {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 240 else { return nil }
         guard !trimmed.contains("\n") else { return nil }
+        // The prompt asks for ≤25 words; reject anything well past that as a plan/ramble
+        // so it falls back to the template. (Tone — e.g. pep talk — can't be checked here;
+        // the prompt's few-shot handles that.)
+        let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+        guard wordCount <= 30 else { return nil }
         return trimmed
     }
 
