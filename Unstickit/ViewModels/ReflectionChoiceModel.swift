@@ -20,19 +20,22 @@ final class ReflectionChoiceModel: ObservableObject {
     @Published private(set) var isBusy = false
 
     private let extraction: ExtractionResult
+    private let brainDump: String
     /// Shared loader state. The model sets it for its own work; whether it clears on
     /// success depends on whether a navigation follows (see `run(clearLoaderOnSuccess:)`).
     private let nav: AppNavigation
     private var workTask: Task<Void, Never>?
 
-    init(extraction: ExtractionResult, clarification: ClarificationResult?, nav: AppNavigation) {
+    init(extraction: ExtractionResult, clarification: ClarificationResult?, brainDump: String, nav: AppNavigation) {
         self.extraction = extraction
         self.options = clarification?.options ?? []
         self.optionsFailed = (clarification == nil)
+        self.brainDump = brainDump
         self.nav = nav
     }
 
-    /// Generate the next step for the chosen option, carrying its `StuckMode` forward.
+    /// Generate the next step for the chosen option, carrying its `StuckMode` and the
+    /// option's wording forward so Stage 3 can ground the step in the user's situation.
     /// Publishes the result to `generatedStep`; the view observes it to navigate. The
     /// loader is *not* cleared on success here — `NextStepView.onAppear` clears it once
     /// the next screen is on-screen, so the loader stays up through the transition.
@@ -40,7 +43,9 @@ final class ReflectionChoiceModel: ObservableObject {
         run(message: "Generating your next step...", clearLoaderOnSuccess: false) {
             self.generatedStep = try await AIService.shared.generateNextStep(
                 extraction: self.extraction,
-                selectedMode: option.mode
+                selectedMode: option.mode,
+                brainDump: self.brainDump,
+                selectedOptionLabel: option.label
             )
         }
     }

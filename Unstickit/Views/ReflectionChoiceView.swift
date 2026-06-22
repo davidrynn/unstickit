@@ -24,7 +24,7 @@ struct ReflectionChoiceView: View {
         self._path = path
         self.nav = nav
         self._model = StateObject(
-            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification, nav: nav)
+            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification, brainDump: brainDump, nav: nav)
         )
     }
 

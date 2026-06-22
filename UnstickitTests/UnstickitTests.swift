@@ -269,7 +269,7 @@ struct ReflectionChoiceModelTests {
             ClarificationOption(label: "I'm not sure where to start.", mode: .narrow),
             ClarificationOption(label: "I feel overwhelmed.", mode: .clarify),
         ])
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification, nav: AppNavigation())
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification, brainDump: "dump", nav: AppNavigation())
 
         #expect(m.options.count == 3)
         #expect(m.optionsFailed == false)
@@ -278,7 +278,7 @@ struct ReflectionChoiceModelTests {
 
     @Test func initWithNilClarificationFlagsFailureForRetry() {
         // T7: clarification failed but extraction succeeded → screen shows summary + retry.
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil, nav: AppNavigation())
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil, brainDump: "dump", nav: AppNavigation())
         #expect(m.options.isEmpty)
         #expect(m.optionsFailed == true)
     }
@@ -302,16 +302,17 @@ struct AIContractTests {
     }
 
     @Test func stuckModeHasExactlyThreeKnownCases() {
-        // Stage 2 must produce one option per StuckMode (spec §6). This pins the mode
-        // set: adding/removing a case breaks the exhaustive switch below at compile time.
-        let modes: [StuckMode] = [.reproduce, .narrow, .clarify]
-        for mode in modes {
+        // Stage 2 must produce one option per StuckMode (spec §6), and `clarify`'s
+        // mode-coverage repair relies on `allModes`. This pins the mode set: adding or
+        // removing a case breaks the exhaustive switch below at compile time.
+        for mode in StuckMode.allModes {
             switch mode {
             case .reproduce, .narrow, .clarify:
                 break  // exhaustive — a new case forces this test to be updated
             }
         }
-        #expect(Set(modes.map(\.rawValue)) == ["reproduce", "narrow", "clarify"])
+        #expect(StuckMode.allModes.count == 3)
+        #expect(Set(StuckMode.allModes.map(\.rawValue)) == ["reproduce", "narrow", "clarify"])
     }
 }
 
