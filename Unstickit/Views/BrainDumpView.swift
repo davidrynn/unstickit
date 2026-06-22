@@ -137,6 +137,9 @@ struct BrainDumpView: View {
 
     private func submit() {
         guard !trimmedDraft.isEmpty else { return }
+        // Reentry guard: a fast double-tap could fire submit twice before the button
+        // disables / the loader overlay covers the screen, double-pushing the next screen.
+        guard nav.loadingMessage == nil else { return }
         let trimmed = trimmedDraft
 
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count

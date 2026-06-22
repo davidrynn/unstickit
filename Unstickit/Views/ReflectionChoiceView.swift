@@ -10,6 +10,11 @@ struct ReflectionChoiceView: View {
     private let nav: AppNavigation
     @StateObject private var model: ReflectionChoiceModel
 
+    /// True only while we're pushing to the next step, so `onDisappear` can tell a push
+    /// (loader handed off to `NextStepView`) apart from leaving the screen (loader should
+    /// be cleared). Reset on each `onAppear`.
+    @State private var didPushNext = false
+
     private var isLoading: Bool { nav.loadingMessage != nil }
 
     init(
@@ -69,13 +74,23 @@ struct ReflectionChoiceView: View {
         .navigationBarTitleDisplayMode(.inline)
         // Clear the loader the inbound transition (dump → here) raised, now that this
         // screen is on-screen. The shared overlay lives at the tab-shell root.
-        .onAppear { nav.loadingMessage = nil }
+        .onAppear {
+            nav.loadingMessage = nil
+            didPushNext = false
+        }
         .onChange(of: model.generatedStep) { _, step in
             guard let step else { return }
             // Non-animated push so the loader hides the navigation entirely
             // (cleared by NextStepView.onAppear).
+            didPushNext = true
             nav.pushBehindLoader(.nextStep(step, brainDump: brainDump), path: $path)
             model.clearGeneratedStep()
+        }
+        // Safety net: if this screen goes away without having pushed the next step
+        // (e.g. popped while Stage 3 was still generating), don't leave the shared
+        // loader stuck. A push hands the loader off to NextStepView, so skip then.
+        .onDisappear {
+            if !didPushNext { nav.loadingMessage = nil }
         }
     }
 

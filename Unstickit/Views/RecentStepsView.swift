@@ -270,6 +270,8 @@ private struct RecentStepDetailView: View {
 
     private func submit() {
         guard !trimmedContext.isEmpty else { return }
+        // Reentry guard: avoid a double-tap starting two jobs / double-pushing.
+        guard nav.loadingMessage == nil else { return }
         // Shared loader, held up across the push; cleared by ReflectionChoiceView.onAppear.
         nav.loadingMessage = "Working on your reflection..."
         errorMessage = nil
