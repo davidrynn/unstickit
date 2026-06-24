@@ -36,12 +36,12 @@ struct BrainDumpView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 16) {
-                        SandTextView(text: "Unstick",
+                        SandTextView(text: "Clear Next Step",
                                      seed: 23,
-                                     dotCount: 240,
+                                     dotCount: 400,
                                      dotColor: .primary,
                                      backgroundColor: .clear)
-                            .frame(height: 92)
+                            .frame(height: 120)
                             .frame(maxWidth: .infinity)
 
                         VStack(alignment: .leading, spacing: 6) {

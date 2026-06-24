@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Root tab shell: the **Unstick** flow and the **Saved** steps tab.
+/// Root tab shell: the **Clear Next Step** flow and the **Saved** steps tab.
 struct RootTabView: View {
     @StateObject private var stepStore = RecommendedStepStore()
     @State private var nav = AppNavigation()
@@ -14,7 +14,7 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.unstickPath, store: stepStore, nav: nav)
             }
             .tabItem {
-                Label("Unstick", systemImage: "sparkles")
+                Label("Clear Next Step", systemImage: "sparkles")
             }
             .tag(AppTab.unstick)
 
