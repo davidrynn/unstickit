@@ -775,8 +775,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done & reviewed.
 
 **Scope:** Implement per `come_back_tomorrow_spec.md` (defer creates one `RecommendedStep` with
 `source == .deferredTomorrow`, clears draft, optional reminder, return card on next launch).
-Per §14, the return card's **Start** / **Make it smaller** are a free resume and must never be
-paywalled.
+The return card's **Start** / **Make it smaller** are free, like the entire core flow
+(`monetization_spec.md`).
 
 **Done when:**
 - [x] Decision recorded: ship now (2026-06-19, §13).
@@ -800,8 +800,8 @@ paywalled.
   step" + disclosure chevron) so it never competes with the dump (§4); tapping the row expands
   it ("Ready to pick this back up?" + step text + actions). Offers **Start** (hides the card for
   the session; the step stays active per §7), **Make it smaller** (reveals `fallbackText` inline;
-  shown only when it exists; never regenerates), and **Let this go** (deletes immediately). Per
-  §14 these are a free resume and must never be paywalled.
+  shown only when it exists; never regenerates), and **Let this go** (deletes immediately). These
+  are free, like the entire core flow (`monetization_spec.md`).
   - **Design revision (2026-06-19):** the first cut rendered the full multi-line card expanded by
     default, which pushed the title/prompt below the fold — the exact "tile competes with the
     primary job" problem §4 set out to fix. Reworked to the compact, tap-to-expand banner above
@@ -908,36 +908,17 @@ paywalled.
   a genuine day-2 retention affordance and it makes the planned monetization (see below) feel
   fair rather than punitive, so it is built now rather than left behind its own spec.
 
-## 14. Monetization (recommendation, not yet built)
+## 14. Monetization
 
-The product will be monetized with a paywall around **new** unstick flows. The exact free
-allowance (e.g. first flow free, or N free dumps) is a tuning decision and is not specified
-here; what matters for the design is **where** the gate sits.
+The monetization policy lives in `monetization_spec.md` (canonical). Summary for this
+redesign: **the entire core flow is free and unlimited** — new brain dumps, continuing a
+thread, and resuming a deferred or saved step all carry no paywall. We monetize only
+Pro *features* (pattern detection, history/library, export, deeper modes), which are
+post-MVP.
 
-**Recommendation — gate new dumps, never the return/resume of a deferred step.**
+The one fact this redesign must honor: **no flow control in this document gates the core
+loop.** In particular the **Come back tomorrow** return card (T9) — **Start** /
+**Make it smaller** — is free, like everything else in the core flow.
 
-When a free user defers a step with **Come back tomorrow** and returns the next day, tapping
-**Start** / **Make it smaller** on the return card must *not* hit the paywall. That moment is
-the payoff the deferred flow promised ("When you come back, we'll start from this step",
-`come_back_tomorrow_spec.md` §3), and its whole design ethos is no guilt, no pressure
-(`come_back_tomorrow_spec.md` §1, §4). Paywalling it turns a trust affordance into a
-bait-and-switch and will read as manipulative.
-
-So:
-
-- **Paywalled:** starting a *new* brain dump / **Find my next step** (subject to the free
-  allowance).
-- **Always free:** resuming a deferred or saved step from the return card or the Saved tab —
-  the user already "paid" for that one in attention.
-
-This funnel still works for conversion: the free day-2 win brings the user back into the app,
-where a *new* dump is the natural, fair place to surface the paywall at a high-intent moment.
-
-The paywall itself is **not implemented in this redesign** — this section records the intended
-placement so the deferred flow (T9) is not later wired to gate the wrong moment.
-
-### Still open
-
-- Free allowance tuning for §14 (first flow free vs. N free dumps vs. trial). Does not affect
-  T9 — only where/when the future paywall triggers on *new* dumps.
+The paywall is **not implemented in this redesign**; there is nothing here to gate.
 

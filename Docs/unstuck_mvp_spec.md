@@ -285,7 +285,36 @@ struct NextStepResult {
 @AppStorage("draft_brain_dump") var draftBrainDump: String = ""
 ```
 
-Draft is the only persistence in MVP. No completed session storage.
+Draft is the only persistence of *in-progress* state in MVP. No completed-session
+storage beyond the two items below.
+
+### Saved steps (`RecommendedStepStore`)
+
+Per the flow redesign, steps the user explicitly saves persist in a local
+`RecommendedStepStore` surfaced in the **Saved** tab. (See `recommended_steps_spec.md`.)
+
+### Lightweight session log (forward-compatible groundwork)
+
+On each **resolved** session, append one flat record to an append-only log:
+
+```swift
+struct SessionLogEntry: Codable {
+    let createdAt: Date
+    let brainDumpSnippet: String   // short
+    let chosenMode: StuckMode
+    let blockerTypes: [BlockerType]
+}
+```
+
+- **Deliberately dumb.** No `repeatSubjectKey`, no `threadID` threading, no aggregation,
+  no surfaces, no paywall. A handful of fields written on resolve.
+- **Why it ships in MVP anyway:** it accrues history silently (so the post-MVP
+  personalization feature has fuel instead of a cold start) and lets us validate, from
+  real data, whether users actually get stuck on *recurring* subjects — the assumption
+  the entire Pro story depends on.
+- The full personalization feature that builds on this log is **post-MVP** and specified
+  in `pattern_detection_spec.md`. Do not build that machinery now.
+- Requires making `StuckMode` and `BlockerType` `Codable` (they are not today).
 
 ---
 
@@ -330,6 +359,11 @@ are retained only for historical rationale:
 ## 8. Out of Scope for MVP
 
 - Session history (list, detail, try again) — **post-MVP**
+- **Pattern detection / personalization (the "learns how you get stuck" Pro feature) —
+  post-MVP.** Gated on observed retention + real subject recurrence in the lightweight
+  session log (§6). Specified in `pattern_detection_spec.md`. The *only* part that ships
+  in MVP is the dumb append-only log itself.
+- **Paywall / StoreKit / IAP** — post-MVP. No purchase flow in the MVP.
 - Cloud sync or multi-device
 - Edit-and-regenerate (partial re-run)
 - Team or sharing features
