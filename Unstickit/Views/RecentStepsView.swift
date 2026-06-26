@@ -6,6 +6,9 @@ struct RecentStepsView: View {
     @EnvironmentObject private var stepStore: RecommendedStepStore
     @Environment(AppNavigation.self) private var nav
 
+    /// Local-only demand probe for the post-MVP Pro feature (quiet footer row).
+    @StateObject private var interestStore = ProInterestStore()
+
     @State private var pendingAction: PendingAction?
 
     /// A destructive action that requires confirmation before it runs.
@@ -83,6 +86,8 @@ struct RecentStepsView: View {
                     }
                 }
             }
+
+            ProTeaserRow(interestStore: interestStore)
         }
         .navigationTitle("Saved")
         .navigationBarTitleDisplayMode(.inline)
@@ -130,6 +135,42 @@ struct RecentStepsView: View {
         case .delete(let step): stepStore.dismiss(step)
         case .unsave(let step): stepStore.unsave(step)
         }
+    }
+}
+
+/// Quiet "Pro is coming" teaser shown at the bottom of the Saved tab. Doubles as a
+/// demand probe: tapping "Notify me" logs a local interest event (no account / network).
+/// Deliberately low-emphasis so it never competes with saved steps.
+private struct ProTeaserRow: View {
+    @ObservedObject var interestStore: ProInterestStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("More is coming", systemImage: "sparkle")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            if interestStore.hasRegisteredInterest {
+                Text("Thanks — we'll let you know when it's ready.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Unstick is learning to help you over time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Notify me") {
+                    interestStore.registerInterest()
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.borderless)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listRowSeparator(.hidden)
+        .animation(.easeInOut(duration: 0.2), value: interestStore.hasRegisteredInterest)
     }
 }
 
