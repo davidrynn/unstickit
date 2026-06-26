@@ -1,0 +1,4 @@
+# Local tooling / agent config (not part of the project)
+.claude/
+.mcp.json
+.xcodebuildmcp/

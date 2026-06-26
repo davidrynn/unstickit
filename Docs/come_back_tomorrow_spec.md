@@ -181,10 +181,9 @@ If multiple deferred steps exist, show only the most recent one in the return ca
 
 ### Monetization boundary
 
-If a paywall is added (see `flow_redesign_spec.md` §14), the return card is a **free resume**:
-**Start** and **Make it smaller** must never be gated. The user already engaged with this step;
-the deferred flow promised it would be here for them. Gate only *new* brain dumps, not the
-continuation of a deferred or saved step.
+The return card is free, like the entire core flow (`monetization_spec.md`): **Start** and
+**Make it smaller** are never gated. Monetization is limited to Pro *features* (post-MVP);
+no part of the unstuck flow — new dumps included — is paywalled.
 
 ---
 
