@@ -24,14 +24,27 @@ final class ReflectionChoiceModel: ObservableObject {
     /// Shared loader state. The model sets it for its own work; whether it clears on
     /// success depends on whether a navigation follows (see `run(clearLoaderOnSuccess:)`).
     private let nav: AppNavigation
+    /// Append-only evidence log written once when this session resolves (see
+    /// `Docs/session_log_spec.md`).
+    private let sessionLog: SessionLogStore
     private var workTask: Task<Void, Never>?
+    /// Guards the one-entry-per-resolved-session rule: this model instance is one session's
+    /// reflection, so we log at most once even if the user pops back and picks again.
+    private var didRecordSession = false
 
-    init(extraction: ExtractionResult, clarification: ClarificationResult?, brainDump: String, nav: AppNavigation) {
+    init(
+        extraction: ExtractionResult,
+        clarification: ClarificationResult?,
+        brainDump: String,
+        nav: AppNavigation,
+        sessionLog: SessionLogStore
+    ) {
         self.extraction = extraction
         self.options = clarification?.options ?? []
         self.optionsFailed = (clarification == nil)
         self.brainDump = brainDump
         self.nav = nav
+        self.sessionLog = sessionLog
     }
 
     /// Generate the next step for the chosen option, carrying its `StuckMode` and the
@@ -47,7 +60,21 @@ final class ReflectionChoiceModel: ObservableObject {
                 brainDump: self.brainDump,
                 selectedOptionLabel: option.label
             )
+            self.recordResolvedSession(chosenMode: option.mode)
         }
+    }
+
+    /// Append one session-log entry the first time this session produces a next step.
+    /// Called only on a successful Stage 3 generation (this is "resolved"); the guard keeps
+    /// it to one entry per session even across pop-back-and-retry within this screen.
+    private func recordResolvedSession(chosenMode: StuckMode) {
+        guard !didRecordSession else { return }
+        didRecordSession = true
+        sessionLog.record(
+            brainDump: brainDump,
+            chosenMode: chosenMode,
+            blockerTypes: extraction.blockers.map(\.type)
+        )
     }
 
     /// Regenerate a fresh set of 3 options from the same situation — no typed input.

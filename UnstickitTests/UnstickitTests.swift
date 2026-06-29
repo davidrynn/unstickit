@@ -20,11 +20,15 @@ import Testing
 
 @MainActor
 private func makeStore() -> RecommendedStepStore {
-    // A throwaway, isolated defaults suite per store so tests never collide.
+    RecommendedStepStore(defaults: makeTransientDefaults())
+}
+
+/// A throwaway, isolated defaults suite so tests never collide or persist.
+private func makeTransientDefaults() -> UserDefaults {
     let suite = "test.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defaults.removePersistentDomain(forName: suite)
-    return RecommendedStepStore(defaults: defaults)
+    return defaults
 }
 
 /// A gregorian calendar pinned to UTC so date math is deterministic across machines.
@@ -88,6 +92,47 @@ struct SaveBehaviorTests {
 
         store.dismiss(saved)
         #expect(store.savedSteps.isEmpty)
+    }
+}
+
+// MARK: - Saved-tab badge: "new since last seen", not a running total
+
+@MainActor
+struct SavedBadgeTests {
+    @Test func unseenCountClearsWhenSavedTabIsSeen() {
+        let store = makeStore()
+        #expect(store.unseenSavedCount == 0)
+
+        store.saveStep(text: "A new step", fallbackText: nil, brainDump: "dump")
+        #expect(store.unseenSavedCount == 1)
+
+        // Opening the Saved tab marks everything current as seen → badge clears.
+        store.markSavedSeen()
+        #expect(store.unseenSavedCount == 0)
+        #expect(store.savedSteps.count == 1)  // the step itself stays in the list
+    }
+
+    @Test func stepsSavedAfterViewingBadgeAgain() {
+        let store = makeStore()
+        store.saveStep(text: "First", fallbackText: nil, brainDump: "dump")
+        store.markSavedSeen()
+        #expect(store.unseenSavedCount == 0)
+
+        store.saveStep(text: "Second", fallbackText: nil, brainDump: "dump")
+        #expect(store.unseenSavedCount == 1)
+    }
+
+    @Test func lastSeenPersistsAcrossInstances() {
+        let defaults = makeTransientDefaults()
+        let first = RecommendedStepStore(defaults: defaults)
+        first.saveStep(text: "Saved", fallbackText: nil, brainDump: "dump")
+        first.markSavedSeen()
+        #expect(first.unseenSavedCount == 0)
+
+        // A relaunch must not resurrect the badge for already-seen steps.
+        let reloaded = RecommendedStepStore(defaults: defaults)
+        #expect(reloaded.savedSteps.count == 1)
+        #expect(reloaded.unseenSavedCount == 0)
     }
 }
 
@@ -269,7 +314,7 @@ struct ReflectionChoiceModelTests {
             ClarificationOption(label: "I'm not sure where to start.", mode: .narrow),
             ClarificationOption(label: "I feel overwhelmed.", mode: .clarify),
         ])
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification, brainDump: "dump", nav: AppNavigation())
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: clarification, brainDump: "dump", nav: AppNavigation(), sessionLog: SessionLogStore(defaults: makeTransientDefaults()))
 
         #expect(m.options.count == 3)
         #expect(m.optionsFailed == false)
@@ -278,7 +323,7 @@ struct ReflectionChoiceModelTests {
 
     @Test func initWithNilClarificationFlagsFailureForRetry() {
         // T7: clarification failed but extraction succeeded → screen shows summary + retry.
-        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil, brainDump: "dump", nav: AppNavigation())
+        let m = ReflectionChoiceModel(extraction: sampleExtraction(), clarification: nil, brainDump: "dump", nav: AppNavigation(), sessionLog: SessionLogStore(defaults: makeTransientDefaults()))
         #expect(m.options.isEmpty)
         #expect(m.optionsFailed == true)
     }
@@ -313,6 +358,42 @@ struct AIContractTests {
         }
         #expect(StuckMode.allModes.count == 3)
         #expect(Set(StuckMode.allModes.map(\.rawValue)) == ["reproduce", "narrow", "clarify"])
+    }
+}
+
+// MARK: - Session log (session_log_spec.md)
+
+@MainActor
+struct SessionLogStoreTests {
+    @Test func recordAppendsOneEntryWithTruncatedSnippet() {
+        let store = SessionLogStore(defaults: makeTransientDefaults())
+        store.record(brainDump: "I can't get my app finished", chosenMode: .narrow, blockerTypes: [.practical, .emotional])
+
+        #expect(store.entries.count == 1)
+        let entry = store.entries[0]
+        #expect(entry.chosenMode == .narrow)
+        #expect(entry.blockerTypes == [.practical, .emotional])
+        #expect(entry.brainDumpSnippet == "I can't get my app finished")
+    }
+
+    @Test func snippetCollapsesWhitespaceAndTruncatesLongDumps() {
+        let long = String(repeating: "stuck ", count: 40)  // > 84 chars once collapsed
+        let snippet = SessionLogEntry.snippet(from: long)
+        #expect(snippet.count <= 84 + 3)        // cap + ellipsis
+        #expect(snippet.hasSuffix("..."))
+        #expect(!snippet.contains("  "))        // whitespace collapsed
+    }
+
+    @Test func logIsAppendOnlyAndPersistsAcrossInstances() {
+        let defaults = makeTransientDefaults()
+        let first = SessionLogStore(defaults: defaults)
+        first.record(brainDump: "one", chosenMode: .reproduce, blockerTypes: [.informational])
+        first.record(brainDump: "two", chosenMode: .clarify, blockerTypes: [])
+
+        // A fresh store over the same defaults sees both entries, in order.
+        let reloaded = SessionLogStore(defaults: defaults)
+        #expect(reloaded.entries.count == 2)
+        #expect(reloaded.entries.map(\.brainDumpSnippet) == ["one", "two"])
     }
 }
 
