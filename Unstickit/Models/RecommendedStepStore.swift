@@ -4,16 +4,37 @@ import Combine
 @MainActor
 final class RecommendedStepStore: ObservableObject {
     @Published private(set) var steps: [RecommendedStep] = []
+    /// When the user last viewed the Saved tab. Saved steps created after this are
+    /// "unseen" and drive the tab badge, so the badge reads as a notification that
+    /// clears on view rather than a permanent total.
+    @Published private(set) var lastSeenSavedAt: Date
 
     private let defaults: UserDefaults
     private let storageKey = "recommended_steps"
+    private let lastSeenSavedKey = "saved_tab_last_seen_at"
     private let calendar: Calendar
 
     init(defaults: UserDefaults = .standard, calendar: Calendar = .current) {
         self.defaults = defaults
         self.calendar = calendar
+        // Default to distantPast so any pre-existing saved steps still badge until
+        // the user first opens the Saved tab (preserves the prior behavior up to that point).
+        self.lastSeenSavedAt = defaults.object(forKey: lastSeenSavedKey) as? Date ?? .distantPast
         load()
         purgeExpired()
+    }
+
+    /// Saved steps the user hasn't seen yet — the value shown on the Saved tab badge.
+    var unseenSavedCount: Int {
+        savedSteps.filter { $0.createdAt > lastSeenSavedAt }.count
+    }
+
+    /// Mark the Saved tab as viewed, clearing the badge. Called when the tab is opened.
+    func markSavedSeen() {
+        let now = Date()
+        guard now > lastSeenSavedAt else { return }
+        lastSeenSavedAt = now
+        defaults.set(now, forKey: lastSeenSavedKey)
     }
 
     var activeSteps: [RecommendedStep] {
