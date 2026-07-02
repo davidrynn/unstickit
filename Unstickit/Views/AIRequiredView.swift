@@ -15,7 +15,7 @@ struct AIRequiredView: View {
                     .fontWeight(.semibold)
                     .multilineTextAlignment(.center)
 
-                Text("Unstuck uses on-device Apple Intelligence to help you find your next step. This requires an iPhone 15 Pro or later with Apple Intelligence enabled.")
+                Text("Clear Next Step uses on-device Apple Intelligence to help you find your next step. This requires an iPhone 15 Pro or later with Apple Intelligence enabled.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

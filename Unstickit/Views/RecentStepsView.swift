@@ -155,7 +155,7 @@ private struct ProTeaserRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Unstick is learning to help you over time.")
+                Text("Clear Next Step is learning to help you over time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

@@ -14,7 +14,7 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.unstickPath, store: stepStore, nav: nav)
             }
             .tabItem {
-                Label("Clear Next Step", systemImage: "sparkles")
+                Label("Get Unstuck", systemImage: "sparkles")
             }
             .tag(AppTab.unstick)
 
