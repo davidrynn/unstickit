@@ -6,6 +6,10 @@ struct NextStepView: View {
     @StateObject private var model: NextStepModel
     @AppStorage("draft_brain_dump") private var draft: String = ""
 
+    // Drives the success haptic + checkmark flourish when this screen reveals the
+    // resolved next step — the payoff moment of arriving at a clear step.
+    @State private var didReveal = false
+
     init(
         result: NextStepResult,
         brainDump: String,
@@ -20,11 +24,18 @@ struct NextStepView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Your next step")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                            .scaleEffect(didReveal ? 1 : 0.5)
+                            .opacity(didReveal ? 1 : 0)
+
+                        Text("Your next step")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                    }
 
                     Text(model.nextStep)
                         .font(.title)
@@ -106,9 +117,15 @@ struct NextStepView: View {
         .navigationTitle("Here's your next step")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.3), value: model.fallbackRevealed)
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: didReveal)
+        .sensoryFeedback(.success, trigger: didReveal)
         // Clear the "Generating your next step..." loader now that this screen is
-        // on-screen — the shared overlay stayed up through the push transition.
-        .onAppear { nav.loadingMessage = nil }
+        // on-screen — the shared overlay stayed up through the push transition —
+        // then play the arrival flourish once the push has settled.
+        .onAppear {
+            nav.loadingMessage = nil
+            revealStep()
+        }
         // Dismissing the confirmation (Done or swipe-down) returns to a fresh
         // Unstick tab; the deferred step is already stored.
         .sheet(isPresented: $model.deferConfirmationShown, onDismiss: finish) {
@@ -121,6 +138,16 @@ struct NextStepView: View {
         // First tap reveals the smaller step inline; a later tap restarts from the dump.
         if !model.registerStillStuck() {
             nav.retry(with: model.brainDump)
+        }
+    }
+
+    // Let the navigation push settle, then trigger the success haptic + checkmark
+    // so the arrival reads as a deliberate flourish rather than fighting the push.
+    private func revealStep() {
+        guard !didReveal else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(0.2))
+            didReveal = true
         }
     }
 
