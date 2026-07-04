@@ -193,7 +193,7 @@ private struct RecentStepDetailView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Last step")
+                        Text("Next step")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
@@ -202,23 +202,6 @@ private struct RecentStepDetailView: View {
                         Text(step.text)
                             .font(.title3)
                             .fontWeight(.medium)
-                    }
-
-                    if let fallbackText = step.fallbackText {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Smaller step")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .textCase(.uppercase)
-
-                            Text(fallbackText)
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(14)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
