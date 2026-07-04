@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Root tab shell: the **Clear Next Step** flow and the **Saved** steps tab.
+/// Root tab shell: the **Start** flow and the **Recent** steps tab.
 struct RootTabView: View {
     @StateObject private var stepStore = RecommendedStepStore()
     @StateObject private var sessionLog = SessionLogStore()
@@ -15,7 +15,7 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.unstickPath, store: stepStore, sessionLog: sessionLog, nav: nav)
             }
             .tabItem {
-                Label("Clear Next Step", systemImage: "sparkles")
+                Label("Start", systemImage: "sparkles")
             }
             .tag(AppTab.unstick)
 
@@ -24,7 +24,7 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.savedPath, store: stepStore, sessionLog: sessionLog, nav: nav)
             }
             .tabItem {
-                Label("Saved", systemImage: "bookmark")
+                Label("Recent", systemImage: "clock")
             }
             .badge(stepStore.unseenSavedCount)
             .tag(AppTab.saved)

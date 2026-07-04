@@ -94,6 +94,45 @@ final class RecommendedStepStore: ObservableObject {
         )
     }
 
+    /// Silently persist a session as an open loop — history, not an intentional
+    /// "save" (`isSaved` stays false, so it never inflates the Saved badge). Returns
+    /// the record's id so the caller can remove it once the loop is closed. Reuses an
+    /// existing active record with the same step text rather than duplicating.
+    @discardableResult
+    func recordSession(text: String, fallbackText: String?, brainDump: String) -> UUID? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let existing = steps.first(where: {
+            $0.status == .active && $0.text.caseInsensitiveCompare(trimmed) == .orderedSame
+        }) {
+            return existing.id
+        }
+
+        let step = RecommendedStep(
+            id: UUID(),
+            text: trimmed,
+            fallbackText: fallbackText?.trimmingCharacters(in: .whitespacesAndNewlines),
+            source: .nextStep,
+            originalBrainDump: brainDump,
+            createdAt: Date(),
+            availableOn: nil,
+            expiresAt: nil,
+            status: .active,
+            isSaved: false
+        )
+        steps.append(step)
+        save()
+        return step.id
+    }
+
+    /// Remove a session by id — used when an open loop is completed or discarded.
+    func delete(id: UUID) {
+        guard steps.contains(where: { $0.id == id }) else { return }
+        steps.removeAll { $0.id == id }
+        save()
+    }
+
     /// Defers the step to tomorrow and returns when it becomes available again,
     /// so callers can schedule an optional reminder for that moment.
     @discardableResult

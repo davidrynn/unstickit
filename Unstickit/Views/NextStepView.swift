@@ -6,6 +6,10 @@ struct NextStepView: View {
     @StateObject private var model: NextStepModel
     @AppStorage("draft_brain_dump") private var draft: String = ""
 
+    // Drives the success haptic + checkmark flourish when this screen reveals the
+    // resolved next step — the payoff moment of arriving at a clear step.
+    @State private var didReveal = false
+
     init(
         result: NextStepResult,
         brainDump: String,
@@ -20,23 +24,26 @@ struct NextStepView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Your next step")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                            .scaleEffect(didReveal ? 1 : 0.5)
+                            .opacity(didReveal ? 1 : 0)
+
+                        Text("Your next step")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                    }
 
                     Text(model.nextStep)
                         .font(.title)
                         .fontWeight(.semibold)
-
-                    Text("Keep it short. This is only to surface the real friction, not solve the whole thing.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
 
                 Button(action: finish) {
-                    Text("Start this step")
+                    Text("Got it")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -46,13 +53,8 @@ struct NextStepView: View {
                 }
 
                 VStack(spacing: 16) {
-                    Button(action: handleStillStuck) {
-                        Label("I'm still stuck", systemImage: "bubble.left")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
+                    // "I'm still stuck" reveals a smaller step. Reveal-only now — a
+                    // second tap no longer silently restarts the flow.
                     if model.fallbackRevealed {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("If that still feels hard")
@@ -70,32 +72,22 @@ struct NextStepView: View {
                         .background(Color(.secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    } else {
+                        Button {
+                            model.revealSmallerStep()
+                        } label: {
+                            Label("I'm still stuck", systemImage: "bubble.left")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
 
-                    Divider()
-
-                    Button {
-                        model.saveForLater()
-                    } label: {
-                        Label("Save for later", systemImage: "bookmark")
+                    // Explicit escape hatch: discard this (silently-persisted) session
+                    // and return to a blank brain dump.
+                    Button(role: .destructive, action: startOver) {
+                        Label("Delete & start over", systemImage: "trash")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    Button {
-                        draft = ""
-                        model.comeBackTomorrow()
-                    } label: {
-                        Label("Come back tomorrow", systemImage: "moon.zzz")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    if let confirmationMessage = model.confirmationMessage {
-                        Text(confirmationMessage)
-                            .font(.footnote)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                     }
@@ -106,9 +98,16 @@ struct NextStepView: View {
         .navigationTitle("Here's your next step")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.easeInOut(duration: 0.3), value: model.fallbackRevealed)
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: didReveal)
+        .sensoryFeedback(.success, trigger: didReveal)
         // Clear the "Generating your next step..." loader now that this screen is
-        // on-screen — the shared overlay stayed up through the push transition.
-        .onAppear { nav.loadingMessage = nil }
+        // on-screen — the shared overlay stayed up through the push transition —
+        // then play the arrival flourish once the push has settled.
+        .onAppear {
+            nav.loadingMessage = nil
+            model.recordSession()   // silently persist this session as an open loop
+            revealStep()
+        }
         // Dismissing the confirmation (Done or swipe-down) returns to a fresh
         // Unstick tab; the deferred step is already stored.
         .sheet(isPresented: $model.deferConfirmationShown, onDismiss: finish) {
@@ -117,14 +116,28 @@ struct NextStepView: View {
         }
     }
 
-    private func handleStillStuck() {
-        // First tap reveals the smaller step inline; a later tap restarts from the dump.
-        if !model.registerStillStuck() {
-            nav.retry(with: model.brainDump)
+    // Let the navigation push settle, then trigger the success haptic + checkmark
+    // so the arrival reads as a deliberate flourish rather than fighting the push.
+    private func revealStep() {
+        guard !didReveal else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(0.2))
+            didReveal = true
         }
     }
 
+    /// "Got it" — the loop is resolved; drop it and return to a fresh brain dump.
     private func finish() {
+        resolveAndReset()
+    }
+
+    /// "Delete & start over" — discard this session and return to a fresh brain dump.
+    private func startOver() {
+        resolveAndReset()
+    }
+
+    private func resolveAndReset() {
+        model.resolveSession()
         draft = ""
         nav.startUnstickFresh()
     }

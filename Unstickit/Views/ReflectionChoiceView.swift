@@ -206,7 +206,6 @@ private struct ChoiceRow: View {
         goalSummary: "Finish the app",
         blockers: [],
         frictionSummary: "AI/SwiftUI bugs keep getting in the way",
-        whatINoticed: "You keep switching tools instead of isolating one bug",
         summary: "You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear."
     )
     let clarification = ClarificationResult(options: [

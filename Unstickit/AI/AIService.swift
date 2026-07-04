@@ -34,6 +34,19 @@ enum AIServiceError: Error, LocalizedError {
     }
 }
 
+/// On-device model availability, mapped to a UI-facing enum so views don't import FoundationModels.
+enum AIAvailability: Equatable {
+    case available
+    /// The hardware can't run Apple Intelligence (e.g. pre-iPhone 15 Pro).
+    case deviceNotEligible
+    /// Eligible hardware, but Apple Intelligence is turned off in Settings.
+    case appleIntelligenceNotEnabled
+    /// Available but the model is still downloading / warming up.
+    case modelNotReady
+    /// A reason the framework reports that we don't specifically handle.
+    case unknown
+}
+
 actor AIService {
     static let shared = AIService()
 
@@ -41,14 +54,23 @@ actor AIService {
 
     // MARK: - Device Eligibility
 
-    nonisolated func isAvailable() -> Bool {
-        let model = SystemLanguageModel.default
-        switch model.availability {
+    nonisolated func availability() -> AIAvailability {
+        switch SystemLanguageModel.default.availability {
         case .available:
-            return true
-        default:
-            return false
+            return .available
+        case .unavailable(.deviceNotEligible):
+            return .deviceNotEligible
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return .appleIntelligenceNotEnabled
+        case .unavailable(.modelNotReady):
+            return .modelNotReady
+        case .unavailable:
+            return .unknown
         }
+    }
+
+    nonisolated func isAvailable() -> Bool {
+        availability() == .available
     }
 
     // MARK: - Stage 1: Extraction
@@ -76,12 +98,6 @@ actor AIService {
         informational (unclear path or decision needed), or emotional (fear, avoidance, self-doubt).
         - frictionSummary: A single warm sentence that names what is making this genuinely hard — \
         emotionally, practically, or both. Write it with care, not detachment. Use second person.
-        - whatINoticed: One sentence beginning with "I noticed" or "Something I noticed" that \
-        surfaces a specific, non-obvious pattern or tension — something the user may not have named \
-        directly but that helps explain why they are stuck. This should feel like a small honest \
-        insight, not a restatement of what they said. Do NOT rephrase what the user said. \
-        Surface something that helps explain *why* — a pattern, tension, or dynamic they didn't name. \
-        For example: name a loop, a gap between intention and action, or what the repeated behavior reveals.
         - summary: A short second-person display line — one sentence, at most 28 words — that \
         names what they want to accomplish and the friction getting in the way. Plain and direct: \
         no diagnosis, no therapy language, no generic encouragement. \
@@ -100,8 +116,14 @@ actor AIService {
                 to: prompt,
                 generating: ExtractionResult.self
             )
+            var result = response.content
+            // Defensive cap: the prompt asks for 1–3 blockers, but the model
+            // occasionally returns 4+ on multi-goal inputs. Clamp so the UI and
+            // Stage 2 never see more than the spec allows.
+            if result.blockers.count > 3 {
+                result.blockers = Array(result.blockers.prefix(3))
+            }
             #if DEBUG
-            let result = response.content
             print("""
 
             ┌─ STAGE 1: EXTRACTION ──────────────────────────────
@@ -114,14 +136,11 @@ actor AIService {
             │   blockers:
             \(result.blockers.map { "│     [\($0.type.rawValue)] \($0.description)" }.joined(separator: "\n"))
             │   frictionSummary: \(result.frictionSummary)
-            │   whatINoticed: \(result.whatINoticed)
             │   summary: \(result.summary)
             └────────────────────────────────────────────────────
             """)
-            return result
-            #else
-            return response.content
             #endif
+            return result
         } catch {
             #if DEBUG
             print("⚠️ STAGE 1 extraction error: \(error)")
@@ -298,28 +317,44 @@ actor AIService {
         \(Self.modeGuidance(mode))
 
         Rules:
-        - Begin with a concrete action verb: Write, List, Open, Pick, Find, Put, Set a timer, \
+        - Begin with a concrete action verb: Write, Open, Pick, Find, Put, Set a timer, \
         Look at. The step must be a physical, observable action — NOT a feeling, a mindset, or \
         reassurance.
-        - One single sentence, at most 25 words.
+        - ONE action on ONE thing — a single imperative sentence, at most 25 words. NOT two \
+        actions joined by "and", NOT several items, NOT "three things" and NOT "for each". Just \
+        one small move.
+        - It must be finishable in under two minutes: read one thing, write a single sentence, \
+        or make one small choice. NEVER ask them to write a summary, a draft, an outline, a \
+        list of items, or more than one sentence — that is too big.
         - Concrete and specific to THEIR situation — use their domain, not generic advice.
         - Intentionally incomplete: surface the real friction or a starting point; do not \
         try to solve the whole thing.
         - No therapy language, no pep talk, no "remind yourself", no numbered steps.
 
-        Examples of the right shape (different situations):
-        GOOD: "Write down the three job titles you'd actually be glad to get, then stop."
-        GOOD: "Set a timer for two minutes and put away only the things on the garage floor."
-        GOOD: "Open the file where the error happens and read just the first function."
-        BAD: "Take a few deep breaths and remind yourself that one day at a time is enough." \
-        (this is reassurance, not an action — never do this)
-        BAD: "Make a plan to get back on track." (too big, not concrete)
+        The right shape (these describe the FORM to follow — they are NOT sentences to copy):
+        - it names the SINGLE most relevant thing from THEIR situation and stops
+        - or it sets a two-minute timer and does only the smallest first slice of THEIR situation
+        - or it opens or looks at one thing and engages with just the first part of it
+        Write a brand-new sentence in THEIR words about THEIR situation. Do not reuse wording from \
+        these descriptions or from any example anywhere.
+
+        Never produce:
+        - reassurance or a feeling ("take a breath", "remind yourself…") — that is not an action
+        - anything plan-sized or multi-step ("make a plan to get back on track")
+        - several items or "for each" ("list three ideas and write why each appeals") — one thing only
         """
 
         let step: String?
         do {
             let response = try await session.respond(to: prompt, generating: ActivationStep.self)
-            step = Self.validatedStep(response.content.step)
+            let raw = response.content.step
+            step = Self.validatedStep(raw)
+            #if DEBUG
+            if step == nil {
+                print("⚠️ STAGE 3 rejected model output (copied example / too long / " +
+                    "multi-sentence / empty), using fallback. Raw: \(raw)")
+            }
+            #endif
         } catch {
             #if DEBUG
             print("⚠️ STAGE 3 generation error (using fallback): \(error)")
@@ -350,12 +385,75 @@ actor AIService {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 240 else { return nil }
         guard !trimmed.contains("\n") else { return nil }
-        // The prompt asks for ≤25 words; reject anything well past that as a plan/ramble
-        // so it falls back to the template. (Tone — e.g. pep talk — can't be checked here;
-        // the prompt's few-shot handles that.)
+        // The prompt asks for ≤25 words; allow some slack before rejecting as a plan/ramble
+        // so it falls back to the template. 35 (rather than a tight 30) keeps good, on-topic
+        // steps that spend a few words on a parenthetical (e.g. listing their own platforms)
+        // instead of discarding them on length alone. (Tone — e.g. pep talk — can't be checked
+        // here; the prompt's few-shot handles that.)
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        guard wordCount <= 30 else { return nil }
+        guard wordCount <= 35 else { return nil }
+        // One action, one sentence. `reproduce` mode especially tends to return two
+        // sentences ("List what you tried. Then pick one.") that slip under the word cap;
+        // reject anything past a single sentence so it falls back to the template. Uses the
+        // locale sentence tokenizer, which keeps abbreviations (e.g. "vs.") intact.
+        guard sentenceCount(trimmed) <= 1 else { return nil }
+        // Anti-copy guard: small on-device models sometimes echo an illustrative phrase from
+        // the prompt verbatim instead of writing something for the user's actual situation
+        // (e.g. a debugging example surfacing for a coffee-newsletter input). Reject any output
+        // that matches a known example/placeholder so the caller falls back to a template.
+        let normalized = normalizedForComparison(trimmed)
+        for phrase in forbiddenStepPhrases {
+            let normalizedPhrase = normalizedForComparison(phrase)
+            guard !normalizedPhrase.isEmpty else { continue }
+            if normalized == normalizedPhrase
+                || normalized.contains(normalizedPhrase)
+                || normalizedPhrase.contains(normalized) {
+                return nil
+            }
+        }
         return trimmed
+    }
+
+    /// Illustrative/placeholder phrases that must never reach the user. These include the
+    /// example shapes referenced by the Stage-3 prompt and canned outputs the model tends to
+    /// regurgitate. Matching is done on a normalized form (see `normalizedForComparison`), so
+    /// punctuation/casing differences in the model's echo are still caught.
+    private static let forbiddenStepPhrases: [String] = [
+        "Write down the three job titles you'd actually be glad to get, then stop.",
+        "Set a timer for two minutes and put away only the things on the garage floor.",
+        "Open the file where the error happens and read just the first function.",
+        "Take a few deep breaths and remind yourself that one day at a time is enough.",
+        "Make a plan to get back on track."
+    ]
+
+    /// Number of sentences in `text`. Uses the locale-aware sentence tokenizer, but first
+    /// neutralizes common abbreviations whose internal period the tokenizer would otherwise
+    /// treat as a sentence break (e.g. "Substack vs. Ghost" would count as two). Used to
+    /// enforce the one-sentence rule on generated steps.
+    private static func sentenceCount(_ text: String) -> Int {
+        var scrubbed = text
+        for abbreviation in ["e.g.", "i.e.", "vs.", "etc.", "Dr.", "Mr.", "Mrs.", "Ms.", "a.m.", "p.m.", "No.", "Inc.", "St."] {
+            scrubbed = scrubbed.replacingOccurrences(
+                of: abbreviation,
+                with: abbreviation.replacingOccurrences(of: ".", with: "")
+            )
+        }
+        var count = 0
+        scrubbed.enumerateSubstrings(in: scrubbed.startIndex..<scrubbed.endIndex, options: .bySentences) { substring, _, _, _ in
+            if let substring, !substring.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// Lowercases and reduces a string to space-separated alphanumeric tokens so near-identical
+    /// echoes (differing only in punctuation, casing, or spacing) compare equal.
+    private static func normalizedForComparison(_ string: String) -> String {
+        let mapped = string.lowercased().unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : " "
+        }
+        return String(mapped).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     // MARK: - Deterministic fallbacks (no model, domain-neutral)

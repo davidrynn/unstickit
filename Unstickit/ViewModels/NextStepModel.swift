@@ -10,7 +10,6 @@ final class NextStepModel: ObservableObject {
     let brainDump: String
 
     @Published private(set) var fallbackRevealed = false
-    @Published private(set) var confirmationMessage: String?
 
     /// Drives the "We'll hold this for tomorrow." confirmation sheet (spec §3).
     @Published var deferConfirmationShown = false
@@ -18,7 +17,9 @@ final class NextStepModel: ObservableObject {
     @Published private(set) var reminderScheduled = false
 
     private let store: RecommendedStepStore
-    private var stillStuckCount = 0
+    /// Id of the silently-persisted open-loop session, so it can be removed when the
+    /// user completes ("Got it") or discards ("Delete & start over").
+    private var recordedID: UUID?
     /// When the deferred step becomes available again — the moment to remind at.
     private var deferredAvailableOn: Date?
 
@@ -31,20 +32,28 @@ final class NextStepModel: ObservableObject {
     var nextStep: String { result.nextStep }
     var fallbackStep: String { result.fallbackStep }
 
-    /// First tap reveals the smaller step inline (returns `true`). A later tap returns
-    /// `false`, signalling the caller to restart from the brain dump.
-    func registerStillStuck() -> Bool {
-        stillStuckCount += 1
-        if stillStuckCount == 1 {
-            fallbackRevealed = true
-            return true
-        }
-        return false
+    /// Reveals the smaller step inline. Reveal-only — no longer restarts the flow.
+    func revealSmallerStep() {
+        fallbackRevealed = true
     }
 
-    func saveForLater() {
-        store.saveStep(text: result.nextStep, fallbackText: result.fallbackStep, brainDump: brainDump)
-        confirmationMessage = "Saved."
+    /// Silently persist this session as an open loop the moment the step appears —
+    /// no user-facing "save". Idempotent across re-appears.
+    func recordSession() {
+        guard recordedID == nil else { return }
+        recordedID = store.recordSession(
+            text: result.nextStep,
+            fallbackText: result.fallbackStep,
+            brainDump: brainDump
+        )
+    }
+
+    /// Close the open loop. Used by both "Got it" (completed) and "Delete & start
+    /// over" (discarded) — in the open-loops model both remove the session; only the
+    /// framing differs.
+    func resolveSession() {
+        recordedID.map { store.delete(id: $0) }
+        recordedID = nil
     }
 
     /// Defers the step to tomorrow (come_back_tomorrow_spec.md §6) and shows the

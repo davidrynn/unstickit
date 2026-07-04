@@ -25,10 +25,6 @@ struct ExtractionResult {
     @Guide(description: "A single warm, empathetic sentence validating why this situation is genuinely hard — use second person, be specific, avoid therapy language or generic platitudes")
     var frictionSummary: String
 
-    /// A short non-obvious insight about what's really going on
-    @Guide(description: "A single sentence beginning with 'I noticed' or 'Something I noticed' that surfaces a specific, non-obvious pattern or tension in the situation — something the user may not have named directly but that helps explain why they are stuck")
-    var whatINoticed: String
-
     /// Second-person display line shown on the Reflection + Choice screen (S2)
     @Guide(description: "A single second-person sentence of at most 28 words that names what the user wants to accomplish and the friction getting in the way. One short paragraph. No diagnosis, no therapy language, no generic encouragement. Example: 'You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear.'")
     var summary: String
@@ -104,7 +100,7 @@ struct ClarificationResult {
 /// or the output doesn't pass validation (see `AIService.generateNextStep`).
 @Generable
 struct ActivationStep {
-    @Guide(description: "One very small first action the user can do in about two minutes right now, written as a single imperative sentence of at most 25 words. It must fit their specific situation and use their own domain — not generic advice. It should surface the real friction or a starting point, NOT solve the whole problem; it is intentionally incomplete. No therapy language, no encouragement, no multi-step plans, no numbered lists.")
+    @Guide(description: "One very small first action the user can do in under two minutes right now, written as a single imperative sentence of at most 25 words. It must be ONE action on ONE thing — never two actions joined by 'and', never several items, never 'three things' or 'for each'. It must be finishable in under two minutes — reading one thing, writing a single sentence, or making one small choice; NEVER a summary, a draft, an outline, a list of items, or more than one sentence of writing. It must fit their specific situation and use their own domain — not generic advice. It should surface the real friction or a starting point, NOT solve the whole problem; it is intentionally incomplete. No therapy language, no encouragement, no multi-step plans, no numbered lists.")
     var step: String
 }
 

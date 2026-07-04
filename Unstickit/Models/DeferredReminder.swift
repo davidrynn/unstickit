@@ -25,7 +25,7 @@ enum DeferredReminder {
         guard availableOn > Date() else { return false }
 
         let content = UNMutableNotificationContent()
-        content.title = "Unstuck"
+        content.title = "Clear Next Step"
         content.body = "Ready to pick this back up?"
         content.sound = .default
 
