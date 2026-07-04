@@ -100,7 +100,7 @@ struct ClarificationResult {
 /// or the output doesn't pass validation (see `AIService.generateNextStep`).
 @Generable
 struct ActivationStep {
-    @Guide(description: "One very small first action the user can do in about two minutes right now, written as a single imperative sentence of at most 25 words. It must fit their specific situation and use their own domain — not generic advice. It should surface the real friction or a starting point, NOT solve the whole problem; it is intentionally incomplete. No therapy language, no encouragement, no multi-step plans, no numbered lists.")
+    @Guide(description: "One very small first action the user can do in under two minutes right now, written as a single imperative sentence of at most 25 words. It must be ONE action on ONE thing — never two actions joined by 'and', never several items, never 'three things' or 'for each'. It must be finishable in under two minutes — reading one thing, writing a single sentence, or making one small choice; NEVER a summary, a draft, an outline, a list of items, or more than one sentence of writing. It must fit their specific situation and use their own domain — not generic advice. It should surface the real friction or a starting point, NOT solve the whole problem; it is intentionally incomplete. No therapy language, no encouragement, no multi-step plans, no numbered lists.")
     var step: String
 }
 

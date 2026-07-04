@@ -40,10 +40,6 @@ struct NextStepView: View {
                     Text(model.nextStep)
                         .font(.title)
                         .fontWeight(.semibold)
-
-                    Text("Keep it short. This is only to surface the real friction, not solve the whole thing.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
 
                 Button(action: finish) {
