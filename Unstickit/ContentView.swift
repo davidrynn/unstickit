@@ -2,10 +2,11 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        if AIService.shared.isAvailable() {
+        let availability = AIService.shared.availability()
+        if availability == .available {
             RootTabView()
         } else {
-            AIRequiredView()
+            AIRequiredView(availability: availability)
         }
     }
 }

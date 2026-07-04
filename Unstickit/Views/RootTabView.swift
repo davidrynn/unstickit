@@ -14,7 +14,7 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.unstickPath, store: stepStore, nav: nav)
             }
             .tabItem {
-                Label("Get Unstuck", systemImage: "sparkles")
+                Label("Start", systemImage: "sparkles")
             }
             .tag(AppTab.unstick)
 
@@ -23,9 +23,8 @@ struct RootTabView: View {
                     .appDestinations(path: $nav.savedPath, store: stepStore, nav: nav)
             }
             .tabItem {
-                Label("Saved", systemImage: "bookmark")
+                Label("Recent", systemImage: "clock")
             }
-            .badge(stepStore.savedSteps.count)
             .tag(AppTab.saved)
         }
         // One full-screen loader for the whole shell, driven by shared state. Sitting

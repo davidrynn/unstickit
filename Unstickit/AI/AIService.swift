@@ -34,6 +34,19 @@ enum AIServiceError: Error, LocalizedError {
     }
 }
 
+/// On-device model availability, mapped to a UI-facing enum so views don't import FoundationModels.
+enum AIAvailability: Equatable {
+    case available
+    /// The hardware can't run Apple Intelligence (e.g. pre-iPhone 15 Pro).
+    case deviceNotEligible
+    /// Eligible hardware, but Apple Intelligence is turned off in Settings.
+    case appleIntelligenceNotEnabled
+    /// Available but the model is still downloading / warming up.
+    case modelNotReady
+    /// A reason the framework reports that we don't specifically handle.
+    case unknown
+}
+
 actor AIService {
     static let shared = AIService()
 
@@ -41,14 +54,23 @@ actor AIService {
 
     // MARK: - Device Eligibility
 
-    nonisolated func isAvailable() -> Bool {
-        let model = SystemLanguageModel.default
-        switch model.availability {
+    nonisolated func availability() -> AIAvailability {
+        switch SystemLanguageModel.default.availability {
         case .available:
-            return true
-        default:
-            return false
+            return .available
+        case .unavailable(.deviceNotEligible):
+            return .deviceNotEligible
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return .appleIntelligenceNotEnabled
+        case .unavailable(.modelNotReady):
+            return .modelNotReady
+        case .unavailable:
+            return .unknown
         }
+    }
+
+    nonisolated func isAvailable() -> Bool {
+        availability() == .available
     }
 
     // MARK: - Stage 1: Extraction
@@ -76,12 +98,6 @@ actor AIService {
         informational (unclear path or decision needed), or emotional (fear, avoidance, self-doubt).
         - frictionSummary: A single warm sentence that names what is making this genuinely hard — \
         emotionally, practically, or both. Write it with care, not detachment. Use second person.
-        - whatINoticed: One sentence beginning with "I noticed" or "Something I noticed" that \
-        surfaces a specific, non-obvious pattern or tension — something the user may not have named \
-        directly but that helps explain why they are stuck. This should feel like a small honest \
-        insight, not a restatement of what they said. Do NOT rephrase what the user said. \
-        Surface something that helps explain *why* — a pattern, tension, or dynamic they didn't name. \
-        For example: name a loop, a gap between intention and action, or what the repeated behavior reveals.
         - summary: A short second-person display line — one sentence, at most 28 words — that \
         names what they want to accomplish and the friction getting in the way. Plain and direct: \
         no diagnosis, no therapy language, no generic encouragement. \
@@ -114,7 +130,6 @@ actor AIService {
             │   blockers:
             \(result.blockers.map { "│     [\($0.type.rawValue)] \($0.description)" }.joined(separator: "\n"))
             │   frictionSummary: \(result.frictionSummary)
-            │   whatINoticed: \(result.whatINoticed)
             │   summary: \(result.summary)
             └────────────────────────────────────────────────────
             """)

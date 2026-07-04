@@ -47,7 +47,7 @@ struct NextStepView: View {
                 }
 
                 Button(action: finish) {
-                    Text("Start this step")
+                    Text("Got it")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -57,13 +57,8 @@ struct NextStepView: View {
                 }
 
                 VStack(spacing: 16) {
-                    Button(action: handleStillStuck) {
-                        Label("I'm still stuck", systemImage: "bubble.left")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
+                    // "I'm still stuck" reveals a smaller step. Reveal-only now — a
+                    // second tap no longer silently restarts the flow.
                     if model.fallbackRevealed {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("If that still feels hard")
@@ -81,32 +76,22 @@ struct NextStepView: View {
                         .background(Color(.secondarySystemBackground))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    } else {
+                        Button {
+                            model.revealSmallerStep()
+                        } label: {
+                            Label("I'm still stuck", systemImage: "bubble.left")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
 
-                    Divider()
-
-                    Button {
-                        model.saveForLater()
-                    } label: {
-                        Label("Save for later", systemImage: "bookmark")
+                    // Explicit escape hatch: discard this (silently-persisted) session
+                    // and return to a blank brain dump.
+                    Button(role: .destructive, action: startOver) {
+                        Label("Delete & start over", systemImage: "trash")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    Button {
-                        draft = ""
-                        model.comeBackTomorrow()
-                    } label: {
-                        Label("Come back tomorrow", systemImage: "moon.zzz")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-
-                    if let confirmationMessage = model.confirmationMessage {
-                        Text(confirmationMessage)
-                            .font(.footnote)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                     }
@@ -124,6 +109,7 @@ struct NextStepView: View {
         // then play the arrival flourish once the push has settled.
         .onAppear {
             nav.loadingMessage = nil
+            model.recordSession()   // silently persist this session as an open loop
             revealStep()
         }
         // Dismissing the confirmation (Done or swipe-down) returns to a fresh
@@ -131,13 +117,6 @@ struct NextStepView: View {
         .sheet(isPresented: $model.deferConfirmationShown, onDismiss: finish) {
             DeferConfirmationView(model: model)
                 .presentationDetents([.medium])
-        }
-    }
-
-    private func handleStillStuck() {
-        // First tap reveals the smaller step inline; a later tap restarts from the dump.
-        if !model.registerStillStuck() {
-            nav.retry(with: model.brainDump)
         }
     }
 
@@ -151,7 +130,18 @@ struct NextStepView: View {
         }
     }
 
+    /// "Got it" — the loop is resolved; drop it and return to a fresh brain dump.
     private func finish() {
+        resolveAndReset()
+    }
+
+    /// "Delete & start over" — discard this session and return to a fresh brain dump.
+    private func startOver() {
+        resolveAndReset()
+    }
+
+    private func resolveAndReset() {
+        model.resolveSession()
         draft = ""
         nav.startUnstickFresh()
     }

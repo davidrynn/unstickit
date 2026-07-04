@@ -45,7 +45,6 @@ private func sampleExtraction(summary: String = "You want to finish your app, bu
         goalSummary: "Finish the app",
         blockers: [Blocker(description: "The code won't compile", type: .practical)],
         frictionSummary: "Each error makes the next step feel unclear.",
-        whatINoticed: "I noticed you stop as soon as the build breaks.",
         summary: summary
     )
 }
@@ -54,24 +53,6 @@ private func sampleExtraction(summary: String = "You want to finish your app, bu
 
 @MainActor
 struct SaveBehaviorTests {
-    @Test func saveForLaterAddsExactlyOneSavedStep() {
-        let store = makeStore()
-        #expect(store.savedSteps.isEmpty)
-
-        let model = NextStepModel(
-            result: NextStepResult(nextStep: "Write one sentence.", fallbackStep: "Open the file."),
-            brainDump: "I'm stuck on the build.",
-            store: store
-        )
-        model.saveForLater()
-
-        // savedSteps drives the Saved-tab badge count.
-        #expect(store.savedSteps.count == 1)
-        #expect(store.savedSteps.first?.text == "Write one sentence.")
-        #expect(store.savedSteps.first?.isSaved == true)
-        #expect(model.confirmationMessage == "Saved.")
-    }
-
     @Test func deferredStepDoesNotInflateSavedBadge() {
         let store = makeStore()
         store.deferUntilTomorrow(text: "A deferred step.", fallbackText: nil, brainDump: "dump")
@@ -202,16 +183,44 @@ struct NextStepModelTests {
         )
     }
 
-    @Test func stillStuckRevealsFallbackThenSignalsRestart() {
+    @Test func stillStuckRevealsSmallerStep() {
         let m = model(store: makeStore())
         #expect(m.fallbackRevealed == false)
 
-        // First tap reveals the fallback inline...
-        #expect(m.registerStillStuck() == true)
+        // Reveal-only now — surfaces the smaller step, never restarts the flow.
+        m.revealSmallerStep()
         #expect(m.fallbackRevealed == true)
+    }
 
-        // ...a later tap signals the caller to restart from the dump.
-        #expect(m.registerStillStuck() == false)
+    @Test func recordSessionPersistsOneSilentOpenLoop() {
+        let store = makeStore()
+        let m = model(store: store)
+
+        m.recordSession()
+
+        // Persisted as history, not an intentional save — so the Saved badge stays 0.
+        #expect(store.activeSteps.count == 1)
+        #expect(store.savedSteps.isEmpty)
+    }
+
+    @Test func recordSessionIsIdempotent() {
+        let store = makeStore()
+        let m = model(store: store)
+
+        m.recordSession()
+        m.recordSession()
+
+        #expect(store.activeSteps.count == 1)
+    }
+
+    @Test func resolveSessionClosesTheOpenLoop() {
+        let store = makeStore()
+        let m = model(store: store)
+        m.recordSession()
+
+        // "Got it" / "Delete & start over" both remove the open loop.
+        m.resolveSession()
+        #expect(store.activeSteps.isEmpty)
     }
 
     @Test func comeBackTomorrowDefersAndShowsConfirmation() {
