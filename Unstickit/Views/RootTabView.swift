@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Root tab shell: the **Clear Next Step** flow and the **Saved** steps tab.
+/// Root tab shell: the **Start** flow and the **Recent** steps tab.
 struct RootTabView: View {
     @StateObject private var stepStore = RecommendedStepStore()
+    @StateObject private var sessionLog = SessionLogStore()
     @State private var nav = AppNavigation()
 
     var body: some View {
@@ -11,7 +12,7 @@ struct RootTabView: View {
         TabView(selection: $nav.selectedTab) {
             NavigationStack(path: $nav.unstickPath) {
                 BrainDumpView(path: $nav.unstickPath)
-                    .appDestinations(path: $nav.unstickPath, store: stepStore, nav: nav)
+                    .appDestinations(path: $nav.unstickPath, store: stepStore, sessionLog: sessionLog, nav: nav)
             }
             .tabItem {
                 Label("Start", systemImage: "sparkles")
@@ -20,12 +21,17 @@ struct RootTabView: View {
 
             NavigationStack(path: $nav.savedPath) {
                 RecentStepsView(path: $nav.savedPath)
-                    .appDestinations(path: $nav.savedPath, store: stepStore, nav: nav)
+                    .appDestinations(path: $nav.savedPath, store: stepStore, sessionLog: sessionLog, nav: nav)
             }
             .tabItem {
                 Label("Recent", systemImage: "clock")
             }
+            .badge(stepStore.unseenSavedCount)
             .tag(AppTab.saved)
+        }
+        // The badge is "new since you last looked": opening the Saved tab clears it.
+        .onChange(of: nav.selectedTab) { _, tab in
+            if tab == .saved { stepStore.markSavedSeen() }
         }
         // One full-screen loader for the whole shell, driven by shared state. Sitting
         // above the TabView keeps it visible across navigation pushes; each
@@ -48,6 +54,7 @@ private extension View {
     func appDestinations(
         path: Binding<NavigationPath>,
         store: RecommendedStepStore,
+        sessionLog: SessionLogStore,
         nav: AppNavigation
     ) -> some View {
         navigationDestination(for: AppDestination.self) { destination in
@@ -58,7 +65,8 @@ private extension View {
                     clarification: clarification,
                     brainDump: brainDump,
                     path: path,
-                    nav: nav
+                    nav: nav,
+                    sessionLog: sessionLog
                 )
             case .nextStep(let result, let brainDump):
                 NextStepView(

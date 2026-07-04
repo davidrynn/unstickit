@@ -22,14 +22,21 @@ struct ReflectionChoiceView: View {
         clarification: ClarificationResult?,
         brainDump: String,
         path: Binding<NavigationPath>,
-        nav: AppNavigation
+        nav: AppNavigation,
+        sessionLog: SessionLogStore
     ) {
         self.summary = extraction.summary
         self.brainDump = brainDump
         self._path = path
         self.nav = nav
         self._model = StateObject(
-            wrappedValue: ReflectionChoiceModel(extraction: extraction, clarification: clarification, brainDump: brainDump, nav: nav)
+            wrappedValue: ReflectionChoiceModel(
+                extraction: extraction,
+                clarification: clarification,
+                brainDump: brainDump,
+                nav: nav,
+                sessionLog: sessionLog
+            )
         )
     }
 
@@ -212,7 +219,8 @@ private struct ChoiceRow: View {
             clarification: clarification,
             brainDump: "I can't get my app finished",
             path: .constant(NavigationPath()),
-            nav: AppNavigation()
+            nav: AppNavigation(),
+            sessionLog: SessionLogStore()
         )
     }
 }

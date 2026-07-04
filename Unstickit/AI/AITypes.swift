@@ -42,7 +42,7 @@ struct Blocker {
 }
 
 @Generable
-enum BlockerType: String {
+enum BlockerType: String, Codable {
     /// Missing resources, tools, skills, or access
     case practical
     /// Unclear path, criteria, or decision needed
@@ -63,7 +63,7 @@ enum BlockerType: String {
 
 /// The type of stuck situation — used to constrain Stage 3 generation.
 @Generable
-enum StuckMode: String {
+enum StuckMode: String, Codable {
     /// User has tried multiple approaches with no success — needs to isolate what's failing
     case reproduce
     /// User doesn't know where to begin or what the real problem is — needs to reduce scope
