@@ -15,39 +15,93 @@ public struct SandTextView: View {
     let dotCount: Int
     let dotColor: Color
     let backgroundColor: Color
+    let settleDuration: TimeInterval
+    let weightBoost: CGFloat
+    let wordmarkPixelHeight: CGFloat?
 
     private let nodes: [SandShapeStreamNode]
     private let generator = SandShapeStreamFieldGenerator()
+
+    /// First-frame timestamp, captured once so the settle progresses from the
+    /// moment the view appears rather than from an absolute clock. See
+    /// `Docs/hero_wordmark_animation_spec.md`.
+    @State private var startTime: TimeInterval?
 
     public init(text: String,
                 seed: Int = 23,
                 dotCount: Int = 220,
                 dotColor: Color = .primary,
-                backgroundColor: Color = .clear) {
+                backgroundColor: Color = .clear,
+                settleDuration: TimeInterval = 2.5,
+                weightBoost: CGFloat = 0,
+                wordmarkPixelHeight: CGFloat? = nil) {
         self.text = text
         self.seed = seed
         self.dotCount = dotCount
         self.dotColor = dotColor
         self.backgroundColor = backgroundColor
+        self.settleDuration = settleDuration
+        self.weightBoost = weightBoost
+        self.wordmarkPixelHeight = wordmarkPixelHeight
         self.nodes = generator.generate(seed: seed, dotCount: dotCount)
     }
 
     public var body: some View {
         GeometryReader { proxy in
-            let layout = SandTextLayout.make(text: text, in: proxy.size)
+            let layout = SandTextLayout.make(
+                text: text,
+                in: proxy.size,
+                wordmarkPixelHeight: wordmarkPixelHeight
+            )
 
             TimelineView(.animation) { timeline in
                 Canvas { context, size in
                     guard layout.totalLength > 0 else { return }
                     let time = timeline.date.timeIntervalSinceReferenceDate
 
+                    // One-shot settle: 0 while the grains are still flowing in,
+                    // 1 once they've collapsed onto the letters and the solid
+                    // wordmark has taken over.
+                    let start = startTime ?? time
+                    if startTime == nil {
+                        DispatchQueue.main.async { if startTime == nil { startTime = time } }
+                    }
+                    let settle = settleDuration > 0
+                        ? smoothstep(CGFloat((time - start) / settleDuration))
+                        : 1
+
                     for node in nodes {
-                        let grain = grain(for: node, time: time, layout: layout, size: size)
+                        let grain = grain(for: node, time: time, settle: settle, layout: layout, size: size)
+                        // Skip grains that have faded out — after settle nearly
+                        // all of them are invisible, so this keeps the residual
+                        // per-frame cost to the single fill path below.
+                        guard grain.opacity > 0.01 else { continue }
                         let circle = Path(ellipseIn: CGRect(x: grain.position.x - grain.radius,
                                                             y: grain.position.y - grain.radius,
                                                             width: grain.radius * 2,
                                                             height: grain.radius * 2))
                         context.fill(circle, with: .color(dotColor.opacity(grain.opacity)))
+                    }
+
+                    // The grains resolve into a solid, readable wordmark. Fill
+                    // the glyph paths with even-odd so letter counters stay open.
+                    if settle > 0.001 {
+                        let fillOpacity = smoothstep((settle - 0.35) / 0.65)
+                        if fillOpacity > 0.001 {
+                            let wordmark = layout.fillPath()
+                            let color = GraphicsContext.Shading.color(dotColor.opacity(fillOpacity))
+                            // Faux-bold: stroke the outline to fatten every stroke
+                            // uniformly on top of the fill. `weightBoost` is a
+                            // fraction of the wordmark height; 0 = the font's own
+                            // weight. See Docs/hero_wordmark_animation_spec.md.
+                            if weightBoost > 0 {
+                                context.stroke(wordmark, with: color,
+                                               style: StrokeStyle(lineWidth: size.height * weightBoost,
+                                                                  lineCap: .round,
+                                                                  lineJoin: .round))
+                            }
+                            context.fill(wordmark, with: color, style: FillStyle(eoFill: true))
+                        }
                     }
                 }
                 .background(backgroundColor)
@@ -57,6 +111,7 @@ public struct SandTextView: View {
 
     private func grain(for node: SandShapeStreamNode,
                        time: TimeInterval,
+                       settle: CGFloat,
                        layout: SandTextLayout,
                        size: CGSize) -> SandTextGrainRenderState {
         let progress = fract(node.phaseOffset + CGFloat(time) * node.speed * 1.12 + (CGFloat(node.streamIndex) * 0.18))
@@ -66,18 +121,24 @@ public struct SandTextView: View {
         let normal = CGVector(dx: -tangent.dy, dy: tangent.dx)
         let minDimension = min(size.width, size.height)
 
-        let tangentialOffset = node.tangentialBias * minDimension * 0.0026
+        // As the settle advances the grains gather onto the contour (radial
+        // spread → 0) and fade out, so they read as "filling in" the letters.
+        let gather: CGFloat = 1 - settle
+        let baseTangential: CGFloat = node.tangentialBias * minDimension * 0.0026
+        let tangentialOffset: CGFloat = baseTangential * gather
         let radialNoise = smoothNoise(time: time, seed: node.noiseSeed, period: 2.6)
-        let radialOffset = (node.radialBias * minDimension * 0.0044) + (radialNoise * minDimension * 0.0018)
-        let opacityPulse = 0.1 * (0.5 + (0.5 * sin((Double(progress) * .pi * 2) + time * 2.8)))
+        let baseRadial: CGFloat = (node.radialBias * minDimension * 0.0044) + (radialNoise * minDimension * 0.0018)
+        let radialOffset: CGFloat = baseRadial * gather
+        let opacityPulse: CGFloat = 0.1 * (0.5 + (0.5 * sin((Double(progress) * .pi * 2) + time * 2.8)))
         let presence = loopPresence(for: progress)
 
-        let x = sample.point.x + (tangent.dx * tangentialOffset) + (normal.dx * radialOffset)
-        let y = sample.point.y + (tangent.dy * tangentialOffset) + (normal.dy * radialOffset)
+        let x: CGFloat = sample.point.x + (tangent.dx * tangentialOffset) + (normal.dx * radialOffset)
+        let y: CGFloat = sample.point.y + (tangent.dy * tangentialOffset) + (normal.dy * radialOffset)
 
+        let baseOpacity = min(1, node.opacity * (0.5 + (presence * 0.5)) + opacityPulse)
         return SandTextGrainRenderState(position: CGPoint(x: x, y: y),
                                         radius: node.radius * 0.9,
-                                        opacity: min(1, node.opacity * (0.5 + (presence * 0.5)) + opacityPulse))
+                                        opacity: baseOpacity * gather)
     }
 
     private func loopPresence(for progress: CGFloat) -> CGFloat {
@@ -150,6 +211,22 @@ private struct SandTextLayout {
         return contour
     }
 
+    /// The solid glyph shape the grains settle into. Each flattened contour is a
+    /// closed subpath; filling with the even-odd rule keeps letter counters
+    /// (the holes in `e`, `a`, `p`) open. See `Docs/hero_wordmark_animation_spec.md`.
+    func fillPath() -> Path {
+        var path = Path()
+        for contour in contours {
+            guard let first = contour.points.first else { continue }
+            path.move(to: first)
+            for point in contour.points.dropFirst() {
+                path.addLine(to: point)
+            }
+            path.closeSubpath()
+        }
+        return path
+    }
+
     private func contour(for selector: CGFloat) -> SandTextContour? {
         guard !contours.isEmpty else { return nil }
         guard totalLength > 0 else { return contours.first }
@@ -162,14 +239,13 @@ private struct SandTextLayout {
         return contours.last
     }
 
-    static func make(text: String, in size: CGSize) -> SandTextLayout {
+    static func make(text: String, in size: CGSize, wordmarkPixelHeight: CGFloat? = nil) -> SandTextLayout {
         guard size.width > 0, size.height > 0 else {
             return SandTextLayout(contours: [], totalLength: 0, contourThresholds: [])
         }
 
         let baseSize = max(80, min(size.width * 0.28, size.height * 0.42))
-        let font = PlatformFont.systemFont(ofSize: baseSize, weight: .bold)
-        let ctFont = CTFontCreateWithName(font.fontName as CFString, baseSize, nil)
+        let ctFont = CTFontCreateWithName("Georgia-Bold" as CFString, baseSize, nil)
         let attributed = NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): ctFont
         ])
@@ -202,7 +278,9 @@ private struct SandTextLayout {
 
         let usableWidth = size.width * 0.84
         let usableHeight = size.height * 0.34
-        let scale = min(usableWidth / max(bounds.width, 1), usableHeight / max(bounds.height, 1))
+        let targetHeight = wordmarkPixelHeight ?? usableHeight
+        let targetWidth = wordmarkPixelHeight == nil ? usableWidth : CGFloat.greatestFiniteMagnitude
+        let scale = min(targetWidth / max(bounds.width, 1), targetHeight / max(bounds.height, 1))
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let transformedContours = contours.compactMap { contour -> SandTextContour? in
             guard contour.count > 1 else { return nil }
@@ -379,4 +457,34 @@ private struct SandTextGrainRenderState {
     let position: CGPoint
     let radius: CGFloat
     let opacity: CGFloat
+}
+
+#Preview("Default") {
+    SandTextView(text: "Clear Next Step")
+        .frame(height: 140)
+        .padding()
+}
+
+#Preview("Large Font") {
+    SandTextView(text: "Clear Next Step", dotCount: 350, dotColor: .blue, weightBoost: 0.012, wordmarkPixelHeight: 120)
+        .frame(height: 180)
+        .padding()
+}
+
+#Preview("Small Font") {
+    SandTextView(text: "Clear Next Step", dotCount: 200, dotColor: .secondary, wordmarkPixelHeight: 60)
+        .frame(height: 120)
+        .padding()
+}
+
+#Preview("Resolving") {
+    SandTextView(text: "Clear Next Step", dotCount: 200, dotColor: .secondary, settleDuration: 1.0, wordmarkPixelHeight: 40)
+        .frame(height: 120)
+        .padding()
+}
+
+#Preview("Fixed Pixel Height 80") {
+    SandTextView(text: "Clear Next Step", dotCount: 260, wordmarkPixelHeight: 80)
+        .frame(height: 140)
+        .padding()
 }
