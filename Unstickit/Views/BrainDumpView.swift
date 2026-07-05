@@ -5,6 +5,7 @@ struct BrainDumpView: View {
 
     @EnvironmentObject private var stepStore: RecommendedStepStore
     @Environment(AppNavigation.self) private var nav
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("draft_brain_dump") private var draft: String = ""
     @State private var clarificationPrompt: String? = nil
     @State private var errorMessage: String? = nil
@@ -19,81 +20,103 @@ struct BrainDumpView: View {
         draft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Blue hero-wordmark color, adapted to appearance (hero_wordmark_animation_spec.md):
+    /// a deeper blue on the light background, a lighter/airier blue on the dark one.
+    private var sandBlue: Color {
+        colorScheme == .dark
+            ? Color(red: 0.40, green: 0.68, blue: 1.0)
+            : Color(red: 0.10, green: 0.36, blue: 0.85)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                    // Soft return point for a step deferred yesterday
-                    // (come_back_tomorrow_spec.md §7). Shown above the prompt.
-                    if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed {
-                        DeferredReturnCard(
-                            step: deferred,
-                            onStart: { deferredCardDismissed = true },
-                            onLetGo: {
-                                stepStore.dismiss(deferred)
-                                deferredCardDismissed = true
-                            }
-                        )
+        // Fixed layout (no outer ScrollView): the writing area takes the whole
+        // remaining height and scrolls internally, so the page never shifts and
+        // the action button stays pinned and visible (flow_redesign_spec.md §4).
+        VStack(spacing: 0) {
+            // Soft return point for a step deferred yesterday
+            // (come_back_tomorrow_spec.md §7). Shown above the prompt.
+            if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed {
+                DeferredReturnCard(
+                    step: deferred,
+                    onStart: { deferredCardDismissed = true },
+                    onLetGo: {
+                        stepStore.dismiss(deferred)
+                        deferredCardDismissed = true
                     }
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        SandTextView(text: "Clear Next Step",
-                                     seed: 23,
-                                     dotCount: 400,
-                                     dotColor: .primary,
-                                     backgroundColor: .clear)
-                            .frame(height: 120)
-                            .frame(maxWidth: .infinity)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("What are you stuck on?")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-
-                            Text("Write whatever comes to mind")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    TextEditor(text: $draft)
-                        .frame(minHeight: 180)
-                        .padding(12)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .disabled(isLoading)
-
-                    if let prompt = clarificationPrompt {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "questionmark.circle")
-                                .foregroundStyle(.tint)
-                            Text(prompt)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(12)
-                        .background(Color(.secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button(action: submit) {
-                        Text(isLoading ? "Thinking..." : "Find my next step")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(trimmedDraft.isEmpty ? Color.gray : Color.accentColor)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .disabled(trimmedDraft.isEmpty || isLoading)
-                }
-                .padding(24)
+                )
+                .padding(.bottom, 20)
             }
+
+            VStack(alignment: .center, spacing: 16) {
+                SandTextView(text: "Clear Next Step",
+                             seed: 23,
+                             dotCount: 400,
+                             dotColor: sandBlue,
+                             backgroundColor: .clear)
+                    .frame(height: 120)
+                    .frame(maxWidth: .infinity)
+
+                VStack(alignment: .center, spacing: 6) {
+                    Text("What are you stuck on?")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+
+                    Text("Write whatever comes to mind")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            brainDumpEditor
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 24)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Pin the primary action (and any submit feedback) to the bottom: always
+        // reachable without scrolling, and above the tab bar / keyboard.
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 12) {
+                if let prompt = clarificationPrompt {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.tint)
+                        Text(prompt)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(action: submit) {
+                    Text(isLoading ? "Thinking..." : "Find my next step")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        // Same blue as the wordmark; softened (not flat grey) when
+                        // disabled so the resting screen still reads "in the family."
+                        .background(trimmedDraft.isEmpty ? sandBlue.opacity(0.35) : sandBlue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .disabled(trimmedDraft.isEmpty || isLoading)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            // Breathing room so the button doesn't crowd the floating tab bar.
+            .padding(.bottom, 16)
+        }
         .disabled(isLoading)
         .opacity(isLoading ? 0.18 : 1)
         .animation(.easeInOut(duration: 0.14), value: isLoading)
@@ -133,6 +156,38 @@ struct BrainDumpView: View {
             clarificationPrompt = nil
             errorMessage = nil
         }
+    }
+
+    /// The writing area. Fills the space handed to it and scrolls internally, so
+    /// the surrounding layout stays fixed. Shows a quiet placeholder while empty
+    /// so the box reads as an invitation rather than a void, and carries a light
+    /// border so the tap target is legible against the page.
+    private var brainDumpEditor: some View {
+        ZStack(alignment: .topLeading) {
+            if draft.isEmpty {
+                Text("e.g. I keep meaning to start, but every time I sit down I get overwhelmed and end up doing something else.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    // Matches TextEditor's internal text-container inset so the
+                    // placeholder sits exactly where typing begins.
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
+                    .allowsHitTesting(false)
+            }
+
+            TextEditor(text: $draft)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .disabled(isLoading)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color(.separator).opacity(0.6), lineWidth: 1)
+        )
     }
 
     private func submit() {
@@ -272,5 +327,15 @@ private struct DeferredReturnCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+#Preview {
+    // Provide required bindings and environment so the view can render.
+    let store = RecommendedStepStore()
+    let nav = AppNavigation()
+    return NavigationStack {
+        BrainDumpView(path: .constant(NavigationPath()))
+            .environmentObject(store)
+            .environment(nav)
     }
 }
