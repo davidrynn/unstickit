@@ -5,39 +5,41 @@ import FoundationModels
 
 @Generable
 struct ExtractionResult {
-    /// If false, brain dump needs more context before proceeding
-    @Guide(description: "Whether the input describes a real stuck situation with enough context to analyze")
+    /// If false, brain dump needs more context before proceeding.
+    /// Detailed criteria live in the extraction prompt; keep @Guide strings terse — they are
+    /// compiled into the guided-generation schema and cost context-window tokens on every call.
+    @Guide(description: "Whether there's enough to analyze")
     var isActionable: Bool
 
     /// Shown inline on the brain dump screen when isActionable is false
-    @Guide(description: "A single friendly question asking for more context, only set when isActionable is false")
+    @Guide(description: "A friendly question for more context; only when not actionable")
     var clarificationPrompt: String?
 
     /// One sentence describing what the user is trying to achieve
-    @Guide(description: "A single sentence summarizing the user's goal")
+    @Guide(description: "One sentence: the user's goal")
     var goalSummary: String
 
     /// 1–3 blockers identified from the brain dump
-    @Guide(description: "Between 1 and 3 blockers preventing the user from moving forward")
+    @Guide(description: "1 to 3 blockers")
     var blockers: [Blocker]
 
     /// One sentence describing what is making this emotionally or practically hard
-    @Guide(description: "A single warm, empathetic sentence validating why this situation is genuinely hard — use second person, be specific, avoid therapy language or generic platitudes")
+    @Guide(description: "One warm second-person sentence naming what makes this hard")
     var frictionSummary: String
 
     /// Second-person display line shown on the Reflection + Choice screen (S2)
-    @Guide(description: "A single second-person sentence of at most 28 words that names what the user wants to accomplish and the friction getting in the way. One short paragraph. No diagnosis, no therapy language, no generic encouragement. Example: 'You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear.'")
+    @Guide(description: "One second-person sentence, at most 28 words")
     var summary: String
 }
 
 @Generable
 struct Blocker {
     /// Plain language description shown to the user
-    @Guide(description: "A plain language description of the blocker, one sentence")
+    @Guide(description: "The blocker in one plain sentence")
     var description: String
 
     /// Internal — revealed on demand via disclosure tap
-    @Guide(description: "The category of this blocker")
+    @Guide(description: "practical, informational, or emotional")
     var type: BlockerType
 }
 

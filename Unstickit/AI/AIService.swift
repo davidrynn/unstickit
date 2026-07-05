@@ -4,6 +4,7 @@ import FoundationModels
 enum AIServiceError: Error, LocalizedError {
     case modelUnavailable
     case extractionFailed
+    case inputTooLong
     case contentRefused
     case clarificationFailed
     case nextStepFailed
@@ -14,6 +15,8 @@ enum AIServiceError: Error, LocalizedError {
             return "Apple Intelligence is not available on this device."
         case .extractionFailed:
             return "Could not analyze your input. Please try again."
+        case .inputTooLong:
+            return "That's a lot to take in at once. Try trimming it to the few sentences that matter most."
         case .contentRefused:
             return "Some of what you wrote may be sensitive, so it couldn't be analyzed. Try rephrasing it."
         case .clarificationFailed:
@@ -23,10 +26,10 @@ enum AIServiceError: Error, LocalizedError {
         }
     }
 
-    /// A refusal won't succeed on retry — the input itself needs to change.
+    /// A refusal or over-long input won't succeed on retry — the input itself needs to change.
     var isRetryable: Bool {
         switch self {
-        case .contentRefused, .modelUnavailable:
+        case .contentRefused, .inputTooLong, .modelUnavailable:
             return false
         case .extractionFailed, .clarificationFailed, .nextStepFailed:
             return true
@@ -149,9 +152,18 @@ actor AIService {
             #if DEBUG
             print("⚠️ STAGE 1 extraction error: \(error)")
             #endif
-            if let genError = error as? LanguageModelSession.GenerationError,
-               case .refusal = genError {
-                throw AIServiceError.contentRefused
+            if let genError = error as? LanguageModelSession.GenerationError {
+                switch genError {
+                case .refusal:
+                    throw AIServiceError.contentRefused
+                case .exceededContextWindowSize:
+                    // The prompt + guided-generation schema already sit near the model's
+                    // 4096-token limit; a long brain dump tips it over. Retrying won't help —
+                    // ask the user to shorten it rather than showing a generic failure.
+                    throw AIServiceError.inputTooLong
+                default:
+                    break
+                }
             }
             throw AIServiceError.extractionFailed
         }
