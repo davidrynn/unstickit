@@ -86,14 +86,16 @@ actor AIService {
         Someone is feeling stuck and has written out what's going on. Read what they shared \
         with care — they may be frustrated, overwhelmed, or unsure where to begin.
 
-        Your job is to help them feel understood, then gently surface what might be getting in their way.
+        Your job is to help them feel understood, then gently surface what might be getting in \
+        their way. Reflect only what they actually wrote — never invent a goal, fear, or blocker \
+        they did not describe.
 
         Analyze their input and produce:
         - goalSummary: A single warm sentence reflecting back what they are trying to accomplish, \
         written as if you genuinely understand why it matters to them. Write in second person.
-        - blockers: 1 to 3 blockers written in plain, human language — not clinical labels. \
-        Each should feel like something a thoughtful friend would name, not a project manager. \
-        Describe how the blocker feels from the inside, not how it looks from the outside. \
+        - blockers: 1 to 3 blockers they actually described, in plain human language — not \
+        clinical labels. Each should feel like something a thoughtful friend would name — how it \
+        feels from the inside, not how it looks from outside. \
         Assign each a type: practical (missing resources, access, or skills), \
         informational (unclear path or decision needed), or emotional (fear, avoidance, self-doubt).
         - frictionSummary: A single warm sentence that names what is making this genuinely hard — \
@@ -102,10 +104,12 @@ actor AIService {
         names what they want to accomplish and the friction getting in the way. Plain and direct: \
         no diagnosis, no therapy language, no generic encouragement. \
         Example: "You want to finish your app, but AI/SwiftUI bugs keep making the next step feel unclear."
-        - isActionable: true only if the input describes a specific situation with enough detail \
-        to identify a goal and at least one blocker. Single words, sentence fragments, or inputs \
-        with no described context should return false. \
-        If false, set clarificationPrompt to a single warm, friendly question asking for more context.
+        - isActionable: true only if they actually described BOTH a concrete goal AND at least \
+        one specific blocker, in their own words — never infer or invent either to fill the \
+        fields. Vague distress with no concrete goal ("stuck on everything", "can't get anything \
+        done") is false; a terse but specific goal ("file my quarterly taxes but haven't tracked \
+        expenses") is true. When unsure, false. If false, set clarificationPrompt to a warm, \
+        friendly question and do not fabricate the rest.
 
         User input:
         \(brainDump)
