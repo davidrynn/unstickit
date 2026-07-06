@@ -9,7 +9,7 @@ struct BrainDumpView: View {
     @AppStorage("draft_brain_dump") private var draft: String = ""
     @State private var clarificationPrompt: String? = nil
     @State private var errorMessage: String? = nil
-    @State private var showClearConfirmation = false
+    @State private var showAbout = false
     @State private var deferredCardDismissed = false
 
     /// The loader is shared state now (see `AppNavigation.loadingMessage`) so it can
@@ -123,25 +123,16 @@ struct BrainDumpView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if !trimmedDraft.isEmpty && !isLoading {
-                    Button(role: .destructive) {
-                        showClearConfirmation = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
+                Button {
+                    showAbout = true
+                } label: {
+                    Image(systemName: "info.circle")
                 }
+                .accessibilityLabel("About Clear Next Step")
             }
         }
-        .confirmationDialog("Clear your brain dump?", isPresented: $showClearConfirmation, titleVisibility: .visible) {
-            Button("Clear", role: .destructive) {
-                draft = ""
-                clarificationPrompt = nil
-                errorMessage = nil
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will erase everything you've written.")
+        .sheet(isPresented: $showAbout) {
+            AboutView()
         }
         .onAppear {
             Task { @MainActor in
@@ -188,6 +179,32 @@ struct BrainDumpView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(Color(.separator).opacity(0.6), lineWidth: 1)
         )
+        // Quiet in-field clear: empties the writing area so it's easy to start over.
+        // No confirmation — it's a clear, not a "delete everything." Sits at the
+        // trailing *end* of the box (bottom-right), following the text-field clear
+        // pattern adapted for a multi-line editor — the top-right corner is where the
+        // first line of text flows, so a button there would cover what's being typed.
+        // Only shown when there's something to clear and we're not mid-generation.
+        .overlay(alignment: .bottomTrailing) {
+            if !draft.isEmpty && !isLoading {
+                Button(action: clearDraft) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        // Backing circle so the glyph stays legible over any text
+                        // that scrolls up beneath it.
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                        .padding(6)
+                }
+                .accessibilityLabel("Clear text")
+            }
+        }
+    }
+
+    private func clearDraft() {
+        draft = ""
+        clarificationPrompt = nil
+        errorMessage = nil
     }
 
     private func submit() {
