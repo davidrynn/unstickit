@@ -11,6 +11,9 @@ struct BrainDumpView: View {
     @State private var errorMessage: String? = nil
     @State private var showAbout = false
     @State private var deferredCardDismissed = false
+    /// Drives keyboard dismissal: the writing area is a multi-line editor, so Return
+    /// inserts a newline rather than dismissing. A keyboard-toolbar "Done" resigns this.
+    @FocusState private var isEditorFocused: Bool
 
     /// The loader is shared state now (see `AppNavigation.loadingMessage`) so it can
     /// persist across the push to the choice screen; this screen only reads it.
@@ -130,6 +133,13 @@ struct BrainDumpView: View {
                 }
                 .accessibilityLabel("About Clear Next Step")
             }
+            // A multi-line editor has no "return = done", so give the keyboard an
+            // explicit Done that resigns first responder and reveals the pinned
+            // "Find my next step" button beneath it.
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { isEditorFocused = false }
+            }
         }
         .sheet(isPresented: $showAbout) {
             AboutView()
@@ -169,6 +179,7 @@ struct BrainDumpView: View {
             TextEditor(text: $draft)
                 .font(.body)
                 .scrollContentBackground(.hidden)
+                .focused($isEditorFocused)
                 .disabled(isLoading)
         }
         .padding(12)
