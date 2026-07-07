@@ -8,11 +8,10 @@ import SwiftUI
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // Two stable pages (see Docs/support_page/PAGE_SPEC.md §2): the main support page, and a
-    // standalone privacy policy so App Review's privacy link lands directly on the policy.
-    // Both must stay reachable, and the policy wording must match this sheet + the
-    // "Data Not Collected" App Store label.
-    private let supportURL = URL(string: "https://davidrynn.com/clear-next-step/")
+    // Dedicated stable pages (see Docs/support_page/PAGE_SPEC.md §2) so each link — and each
+    // App Store Connect field — lands directly on the right content. Both must stay reachable,
+    // and the policy wording must match this sheet + the "Data Not Collected" App Store label.
+    private let supportURL = URL(string: "https://davidrynn.com/clear-next-step/support")
     private let privacyURL = URL(string: "https://davidrynn.com/clear-next-step/privacy")
 
     private var versionText: String {
