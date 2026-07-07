@@ -107,7 +107,7 @@ unstuck flow.
 
 **Content:**
 
-- Logo/title: **Unstick**
+- Logo/title: the animated **Clear Next Step** wordmark (see `hero_wordmark_animation_spec.md`)
 - Prompt: **What are you stuck on?**
 - Helper copy: **Write whatever comes to mind**
 - Large multiline text input
@@ -140,6 +140,14 @@ Tap **Find my next step**:
 
 If latency becomes too long, keep the existing loading screen rather than showing partial
 reflection content.
+
+**Layout (2026-07 update):** Fixed, non-scrolling page. The wordmark + prompt sit at the top;
+the text input **fills the remaining height and scrolls internally** (it is the only scroll
+region) so the page never shifts as text is added. The primary CTA is **pinned to the bottom** via
+a bottom safe-area inset — always reachable without scrolling and clear of the floating tab bar —
+with the clarification/error feedback stacked directly above it. The empty input shows a quiet
+placeholder (so it reads as an invitation, not a void) and a light border. The CTA uses the same
+blue as the wordmark, softened rather than flat-grey when disabled.
 
 ---
 
