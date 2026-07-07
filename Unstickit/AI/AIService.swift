@@ -38,7 +38,7 @@ enum AIServiceError: Error, LocalizedError {
 }
 
 /// On-device model availability, mapped to a UI-facing enum so views don't import FoundationModels.
-enum AIAvailability: Equatable {
+nonisolated enum AIAvailability: Equatable {
     case available
     /// The hardware can't run Apple Intelligence (e.g. pre-iPhone 15 Pro).
     case deviceNotEligible
