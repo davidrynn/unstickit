@@ -8,10 +8,11 @@ import SwiftUI
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
-    // TODO: fill in once the support / privacy one-pager is live (spec §7). The links
-    // stay hidden until these are set, so the sheet never shows a broken URL.
-    private let supportURL: URL? = nil
-    private let privacyURL: URL? = nil
+    // One page covers both sections (see Docs/support_page/PAGE_SPEC.md); the Support and
+    // Privacy links point at it. Must stay reachable for App Review, and the privacy wording
+    // there must match this sheet + the "Data Not Collected" App Store label.
+    private let supportURL = URL(string: "https://davidrynn.com/clear-next-step/")
+    private let privacyURL = URL(string: "https://davidrynn.com/clear-next-step/")
 
     private var versionText: String {
         let info = Bundle.main.infoDictionary
