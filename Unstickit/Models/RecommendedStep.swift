@@ -8,6 +8,7 @@ enum RecommendedStepSource: String, Codable {
 
 enum RecommendedStepStatus: String, Codable {
     case active
+    case completed
     case dismissed
 }
 
@@ -22,6 +23,9 @@ struct RecommendedStep: Codable, Identifiable, Equatable {
     var expiresAt: Date?
     var status: RecommendedStepStatus
     var isSaved: Bool
+    /// Set when the session is completed ("Got it"). Retained (not deleted) so completed
+    /// work accrues into the on-device archive — see `retain_completed_sessions_spec.md`.
+    var completedAt: Date? = nil
 
     var isDeferred: Bool {
         source == .deferredTomorrow

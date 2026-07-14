@@ -126,10 +126,23 @@ final class RecommendedStepStore: ObservableObject {
         return step.id
     }
 
-    /// Remove a session by id — used when an open loop is completed or discarded.
+    /// Remove a session by id — used when an open loop is discarded
+    /// ("Delete & start over" / "Let go").
     func delete(id: UUID) {
         guard steps.contains(where: { $0.id == id }) else { return }
         steps.removeAll { $0.id == id }
+        save()
+    }
+
+    /// Mark a session completed ("Got it") — retained as a private, on-device record
+    /// rather than deleted, so it accrues into the archive substrate for a future Pro
+    /// feature (`retain_completed_sessions_spec.md`). Completed records leave
+    /// `activeSteps` (so they drop out of the Recent tab) but are preserved by
+    /// `purgeExpired()` (status `!= .active` and no expiry).
+    func complete(id: UUID) {
+        guard let index = steps.firstIndex(where: { $0.id == id }) else { return }
+        steps[index].status = .completed
+        steps[index].completedAt = Date()
         save()
     }
 

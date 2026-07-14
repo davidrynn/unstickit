@@ -109,8 +109,9 @@ struct NextStepView: View {
             revealStep()
         }
         // Dismissing the confirmation (Done or swipe-down) returns to a fresh
-        // Unstick tab; the deferred step is already stored.
-        .sheet(isPresented: $model.deferConfirmationShown, onDismiss: finish) {
+        // Unstick tab; the deferred step is already stored, so discard the open-loop
+        // record (don't complete it) to avoid a spurious completed duplicate.
+        .sheet(isPresented: $model.deferConfirmationShown, onDismiss: dismissDeferred) {
             DeferConfirmationView(model: model)
                 .presentationDetents([.medium])
         }
@@ -126,18 +127,27 @@ struct NextStepView: View {
         }
     }
 
-    /// "Got it" — the loop is resolved; drop it and return to a fresh brain dump.
+    /// "Got it" — the loop is completed; retain it and return to a fresh brain dump.
     private func finish() {
-        resolveAndReset()
+        model.completeSession()
+        resetToFresh()
     }
 
     /// "Delete & start over" — discard this session and return to a fresh brain dump.
     private func startOver() {
-        resolveAndReset()
+        model.discardSession()
+        resetToFresh()
     }
 
-    private func resolveAndReset() {
-        model.resolveSession()
+    /// Come-back-tomorrow hand-off: the deferred record created by `comeBackTomorrow()`
+    /// supersedes the open-loop record, so discard it (don't complete it) on dismiss —
+    /// otherwise a deferred step would leave a spurious completed duplicate.
+    private func dismissDeferred() {
+        model.discardSession()
+        resetToFresh()
+    }
+
+    private func resetToFresh() {
         draft = ""
         nav.startUnstickFresh()
     }

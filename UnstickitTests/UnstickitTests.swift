@@ -76,6 +76,68 @@ struct SaveBehaviorTests {
     }
 }
 
+// MARK: - Completed-session retention (retain_completed_sessions_spec.md)
+
+@MainActor
+struct CompletedRetentionTests {
+    @Test func completeMarksRecordCompletedAndRetainsIt() throws {
+        let store = makeStore()
+        let id = try #require(store.recordSession(text: "Do the thing", fallbackText: nil, brainDump: "dump"))
+
+        store.complete(id: id)
+
+        #expect(store.activeSteps.isEmpty)                 // drops out of the Recent tab
+        let completed = store.steps.filter { $0.status == .completed }
+        #expect(completed.count == 1)
+        #expect(completed.first?.completedAt != nil)
+    }
+
+    @Test func purgeExpiredPreservesCompletedRecords() throws {
+        let store = makeStore()
+        let id = try #require(store.recordSession(text: "Finished step", fallbackText: nil, brainDump: "dump"))
+        store.complete(id: id)
+
+        store.purgeExpired()
+        #expect(store.steps.contains { $0.status == .completed })
+    }
+
+    @Test func completedRecordsDoNotCountAgainstOpenLoopCap() throws {
+        let store = makeStore()
+        // Complete one session, then add 20 fresh open loops. The 20-record cap applies
+        // only to active open loops, so the completed record must survive alongside them.
+        let completedID = try #require(store.recordSession(text: "Completed", fallbackText: nil, brainDump: "dump"))
+        store.complete(id: completedID)
+        for i in 0..<20 {
+            store.recordSession(text: "Open loop \(i)", fallbackText: nil, brainDump: "dump")
+        }
+
+        store.purgeExpired()
+
+        #expect(store.activeSteps.count == 20)
+        #expect(store.steps.contains { $0.status == .completed })
+    }
+
+    @Test func decodesLegacyRecordWithoutCompletedAt() throws {
+        // A record persisted before `completedAt` existed must still decode (→ nil),
+        // matching the store's default JSONDecoder.
+        let legacy = """
+        [{
+          "id": "\(UUID().uuidString)",
+          "text": "Legacy step",
+          "source": "nextStep",
+          "createdAt": 0,
+          "status": "active",
+          "isSaved": false
+        }]
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode([RecommendedStep].self, from: legacy)
+        #expect(decoded.count == 1)
+        #expect(decoded.first?.text == "Legacy step")
+        #expect(decoded.first?.completedAt == nil)
+    }
+}
+
 // MARK: - Saved-tab badge: "new since last seen", not a running total
 
 @MainActor
@@ -258,14 +320,44 @@ struct NextStepModelTests {
         #expect(store.activeSteps.count == 1)
     }
 
-    @Test func resolveSessionClosesTheOpenLoop() {
+    @Test func completeSessionRetainsRecordAsCompleted() {
         let store = makeStore()
         let m = model(store: store)
         m.recordSession()
 
-        // "Got it" / "Delete & start over" both remove the open loop.
-        m.resolveSession()
+        // "Got it" completes the loop: it leaves the open-loop list (so the Recent tab
+        // no longer shows it) but is retained — status .completed, timestamped — rather
+        // than deleted (retain_completed_sessions_spec.md).
+        m.completeSession()
         #expect(store.activeSteps.isEmpty)
+        let completed = store.steps.filter { $0.status == .completed }
+        #expect(completed.count == 1)
+        #expect(completed.first?.completedAt != nil)
+    }
+
+    @Test func discardSessionDeletesTheOpenLoop() {
+        let store = makeStore()
+        let m = model(store: store)
+        m.recordSession()
+
+        // "Delete & start over" (and the defer hand-off) discard the session entirely —
+        // nothing is retained.
+        m.discardSession()
+        #expect(store.activeSteps.isEmpty)
+        #expect(store.steps.isEmpty)
+    }
+
+    @Test func deferHandOffDiscardsRatherThanCompletes() {
+        let store = makeStore()
+        let m = model(store: store)
+
+        // The come-back-tomorrow sheet's onDismiss routes through discard (not complete),
+        // so deferring leaves the deferred record and creates no spurious .completed one.
+        m.comeBackTomorrow()
+        m.discardSession()
+
+        #expect(!store.steps.contains { $0.status == .completed })
+        #expect(store.activeSteps.contains { $0.source == .deferredTomorrow })
     }
 
     @Test func comeBackTomorrowDefersAndShowsConfirmation() {

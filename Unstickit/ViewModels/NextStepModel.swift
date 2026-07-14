@@ -17,8 +17,8 @@ final class NextStepModel: ObservableObject {
     @Published private(set) var reminderScheduled = false
 
     private let store: RecommendedStepStore
-    /// Id of the silently-persisted open-loop session, so it can be removed when the
-    /// user completes ("Got it") or discards ("Delete & start over").
+    /// Id of the silently-persisted open-loop session, so it can be resolved when the
+    /// user completes ("Got it" → retained) or discards ("Delete & start over" → deleted).
     private var recordedID: UUID?
     /// When the deferred step becomes available again — the moment to remind at.
     private var deferredAvailableOn: Date?
@@ -48,10 +48,17 @@ final class NextStepModel: ObservableObject {
         )
     }
 
-    /// Close the open loop. Used by both "Got it" (completed) and "Delete & start
-    /// over" (discarded) — in the open-loops model both remove the session; only the
-    /// framing differs.
-    func resolveSession() {
+    /// "Got it" — the loop is completed. Retain the record (mark it completed) rather
+    /// than deleting it, so it accrues into the private on-device archive
+    /// (`retain_completed_sessions_spec.md`).
+    func completeSession() {
+        recordedID.map { store.complete(id: $0) }
+        recordedID = nil
+    }
+
+    /// "Delete & start over" (and the come-back-tomorrow hand-off) — discard the
+    /// open-loop record. On defer, the separate deferred record supersedes it.
+    func discardSession() {
         recordedID.map { store.delete(id: $0) }
         recordedID = nil
     }
