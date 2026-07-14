@@ -603,3 +603,39 @@ Issue-006 passing without an explicit fix. Current mode descriptions appear suff
 | Issue-007 (brainDump threading) | Fixed (Run 004) |
 
 ---
+
+---
+
+## Run 007 — 2026-07-03
+
+**Test cases:** TC-11, TC-12, TC-14 (merged in from the former `sample_inputs.md` corpus)
+**Simulator:** iOS 26.5, Apple Intelligence available
+**Method:** manual run of the real pipeline (`extract → clarify → generateNextStep`)
+**Purpose:** spot-check the newer corpus items; non-deterministic — sample, not an expected-value contract
+
+---
+
+#### TC-11 (coffee newsletter) — `isActionable: true`
+
+- `goalSummary`: "You want to launch a paid newsletter about home coffee roasting and get it published."
+- `summary`: "You want to launch a paid newsletter about home coffee roasting, but perfectionism, platform confusion, and fear of failure are holding you back from publishing."
+- `whatINoticed`: "You're caught in a loop of perfectionism and overthinking, which prevents you from making progress."
+- Blockers: `[emotional]` writing never good enough · `[informational]` platform-comparison rabbit hole · `[emotional]` unclear audience + fear of no subscribers
+- Options covered all three modes; `nextStep` (reproduce): "Write down the three platforms you've tried and what didn't work for you."
+
+#### TC-12 (vague overwhelm) — `isActionable: false` (correctly gated)
+
+- `clarificationPrompt`: "Could you tell me a bit more about what you're trying to accomplish?"
+
+#### TC-14 (SwiftUI flicker bug) — `isActionable: true`
+
+- `goalSummary`: "You want to fix a bug in your SwiftUI app where the next-step screen sometimes shows an old result for a split second before updating."
+- `nextStep` (reproduce): "List all the functions you've tried so far and what happened with each one."
+
+**Prompt-tuning observation:** for TC-14, `whatINoticed` restated the blocker ("overwhelmed by the complexity…") instead of surfacing a *non-obvious* pattern, and two blockers were both typed `[emotional]`. TC-11's `whatINoticed` was stronger. Worth a look if the "I noticed" insight underwhelms on technical inputs.
+
+#### Environment note (to actually run the flow)
+
+The on-device flow only runs when the app is **built with Xcode 26.5** (matching the iOS 26.5 runtime). Building with Xcode-beta (27.0 SDK) makes the app crash on launch with a dyld `Symbol not found: FoundationModels.Generable.promptRepresentation` error, because that symbol doesn't exist in the 26.5 runtime. Simulator UI automation likewise needs Xcode 26.5 (`SimulatorKit.framework` is absent from Xcode-beta).
+
+---

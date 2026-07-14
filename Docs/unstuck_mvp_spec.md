@@ -35,146 +35,23 @@ do than to avoid, so the user gets back in the saddle.
 
 ---
 
-## 3. Screens
+## 3. Screens — superseded
 
-### S0 — Apple Intelligence Required
-Shown when device does not meet requirements.
+The original S0–S4 screen definitions and draft-persistence/transition details now live in
+`flow_redesign_spec.md` (screens, copy, navigation) and `recommended_steps_spec.md` (the
+"Save for later" path that replaced the old `ShareLink`-to-Reminders "Save this step" button).
+The one piece from S3 worth carrying forward as rationale, not spec, is *why* the flow uses
+tappable options instead of typed answers: early versions asked the user to type a response to
+an AI-generated question, which added cognitive load and the on-device model reliably generated
+poor questions. Tappable options remove typing and move the hardest judgment (what kind of help
+is needed) to the user's tap, leaving generation a constrained, reliable task.
 
-**Content:**
-- Title: "Unstick requires Apple Intelligence"
-- Body: brief explanation of the requirement
-- Link to Apple's Apple Intelligence settings (deep link if available)
+## 4. State Machine — superseded
 
-**No navigation forward from this screen.**
-
----
-
-### S1 — Brain Dump
-The entry point and root of the app. _(Copy/CTA superseded — see flow_redesign_spec.md §5
-"S1 — Brain Dump." Draft-persistence behavior below remains in force.)_
-
-**Content:**
-- Title: **Unstick**
-- Prompt: **What are you stuck on?**
-- Large multiline text input (autosaved to draft on every change)
-- CTA button: **Find my next step** _(was "Help me think this through")_
-- Inline clarification area (hidden by default — shown if `isActionable == false`)
-
-**States:**
-- **Default** — empty input, button disabled
-- **Has input** — button enabled
-- **Loading** — button shows spinner, input disabled (Stage 1 running)
-- **Needs clarification** — `clarificationPrompt` shown inline below input, input re-enabled
-
-**Draft persistence:**
-- Brain dump text is autosaved to `AppStorage` on every keystroke
-- On launch, if a saved draft exists, the text input is pre-populated
-- Draft is cleared when the user taps "Start" on S4 (session complete) or manually clears the input
-
-**Transitions:**
-- Tap CTA → run Stage 1
-  - `isActionable == true` → S2
-  - `isActionable == false` → stay on S1, show `clarificationPrompt` inline
-
----
-
-### S2 — Reflection _(superseded — see flow_redesign_spec.md §5 "S2 — Reflection + Choice")_
-Shows what the AI extracted from the brain dump.
-
-**Content:**
-- Section: **Your goal** — `goalSummary`
-- Section: **What might be blocking you** — list of `blockers`
-  - Each blocker shows `description`
-  - Disclosure chevron reveals `type` label on tap (on demand)
-- Section: **What might be making this hard** — `frictionSummary`
-- Loading indicator while Stage 2 runs (options loading)
-
-**States:**
-- **Loading** — reflection content visible, options loading
-- **Options ready** → auto-advance to S3
-
-**Transitions:**
-- After Stage 2 completes → S3
-
----
-
-### S3 — Clarification _(superseded — folded into flow_redesign_spec.md §5 "S2 — Reflection + Choice")_
-Presents 3 tappable options describing how the user feels stuck. The user taps one — no typing required.
-
-**Content:**
-- Prompt: **Which feels most true right now?**
-- 3 tappable option buttons (`ClarificationResult.options[].label`)
-- Each button shows a short first-person phrase specific to the user's situation
-
-**States:**
-- **Default** — 3 options visible, ready to tap
-- **Loading** — after tap, Stage 3 running (buttons disabled)
-
-**Why tappable options instead of typed answers:**
-Early versions asked the user to type a response to an AI-generated question. This added
-cognitive load — exactly what stuck users have least of — and the on-device model reliably
-generated poor questions. Tappable options remove typing and move the hardest judgment
-(what kind of help is needed) to the user's tap, leaving Stage 3 with a constrained,
-reliable generation task.
-
-**Transitions:**
-- Tap any option → run Stage 3 with selected `StuckMode` → S4
-
----
-
-### S4 — Next Step
-The primary output screen.
-
-**Content:**
-- Label: **Your next step**
-- `nextStep` text (prominent)
-- CTA button: **Start**
-- Secondary button: **I'm still stuck**
-- Fallback area (hidden by default)
-
-**States:**
-- **Default** — shows `nextStep`, "Start", "I'm still stuck", "Save this step"
-- **Fallback revealed** — shows `nextStep` + `fallbackStep`, "Start", "I'm still stuck", "Save this step"
-- **Give up** — second tap of "I'm still stuck" clears draft and returns to S1
-
-**Transitions:**
-- Tap "Start" → clear draft → S1 (fresh)
-- Tap "I'm still stuck" (first time) → reveal `fallbackStep` inline
-- Tap "I'm still stuck" (second time) → clear draft → S1 (pre-fill brain dump for retry)
-- Tap "Start" after fallback shown → clear draft → S1 (fresh)
-- Tap "Save this step" → opens system share sheet with `nextStep` text (user chooses destination)
-
-**Save this step:**
-- Implemented with SwiftUI `ShareLink(item: nextStep)` — no permissions, no entitlements, no Info.plist changes
-- User chooses destination from the share sheet (Reminders, Notes, Messages, copy, etc.)
-- Button is tertiary / low-emphasis — it should not compete with "Start"
-
----
-
-## 4. State Machine
-
-> _(Superseded — see flow_redesign_spec.md §4–5. The S2/S3 rows below describe the old
-> two-screen flow now folded into one Reflection + Choice screen; the "Save this step →
-> Reminders" rows are replaced by **Save for later** to a local `RecommendedStepStore`.
-> Retained for the S1 and draft-clearing transitions, which still hold.)_
-
-| Screen | Action | Next State | Notes |
-|--------|--------|------------|-------|
-| Launch | Device ineligible | S0 | Block entry |
-| Launch | Device eligible | S1 | Restore draft if present |
-| S1 | Tap CTA | S1 loading | Run Stage 1 |
-| S1 loading | `isActionable == false` | S1 needs clarification | Show `clarificationPrompt` inline |
-| S1 needs clarification | User adds more + resubmits | S1 loading | Re-run Stage 1 |
-| S1 loading | `isActionable == true` | S2 | Auto-advance |
-| S2 | Stage 2 complete | S3 | Auto-advance |
-| S3 | Tap option | S3 loading | Run Stage 3 with selected StuckMode |
-| S3 loading | Stage 3 complete | S4 | |
-| S4 default | Tap "Start" | S1 fresh | Clear draft |
-| S4 default | Tap "I'm still stuck" (1st) | S4 fallback | Reveal fallbackStep |
-| S4 default | Tap "Save this step" | S4 default | Save nextStep to Reminders; show inline confirmation |
-| S4 fallback | Tap "Start" | S1 fresh | Clear draft |
-| S4 fallback | Tap "I'm still stuck" (2nd) | S1 pre-filled | Pre-fill brain dump, clear draft |
-| S4 fallback | Tap "Save this step" | S4 fallback | Save nextStep to Reminders; show inline confirmation |
+Current state machine is defined by `flow_redesign_spec.md` §4–5. The original two-screen
+Reflection/Clarification flow described here has been folded into one Reflection + Choice
+screen, and "Save this step → Reminders" is replaced by **Save for later**
+(`recommended_steps_spec.md`).
 
 ---
 
@@ -334,12 +211,10 @@ struct SessionLogEntry: Codable {
 - [ ] Draft is cleared after tapping "Start" on S4
 - [ ] Draft is pre-populated when returning to S1 via "I'm still stuck" (second tap)
 
-### Save this step _(superseded — see flow_redesign_spec.md §5 "S3 — One Next Step")_
-The MVP `ShareLink`/Reminders save path is replaced by **Save for later**, which stores the
-step in a local `RecommendedStepStore` and updates the **Saved** tab badge. The criteria below
-are retained only for historical rationale:
-- [ ] ~~"Save this step" button opens the system share sheet with `nextStep` as shared text~~
-- [ ] Button does not clear the draft or navigate away _(still true of **Save for later**)_
+### Save this step — superseded
+The MVP `ShareLink`/Reminders save path is replaced by **Save for later**
+(`recommended_steps_spec.md`), which stores the step in a local `RecommendedStepStore` and
+updates the **Saved** tab badge.
 
 ### Edge cases
 - [ ] Ineligible device shows S0 and blocks entry

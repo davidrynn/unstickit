@@ -2,3 +2,8 @@
 .claude/
 .mcp.json
 .xcodebuildmcp/
+.agents/
+skills-lock.json
+
+# Personal notes not meant for the public repo (career strategy, etc.)
+Docs/private/

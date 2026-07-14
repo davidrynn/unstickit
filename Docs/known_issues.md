@@ -93,6 +93,8 @@ both screens to confirm which one (or both) is actually affected, then decide th
 letting the brain dump layout become scrollable (or shrinking the header) below a height
 threshold, and/or explicitly scrolling the focused editor into view on the detail screen.
 
+**Note:** User reports that after getting output error, input screen is covered. Try reproducing that way.
+
 ## Resolved / not a bug
 
 ### 3. Completed sessions don't appear in the "Recent" tab

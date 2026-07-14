@@ -239,6 +239,126 @@ Either is acceptable; failure case is a crash or malformed response.
 
 ---
 
+### TC-11 — Well-rounded happy path (all three blocker types)
+
+**Input:**
+> I've been trying to launch a small side project — a paid newsletter about home coffee roasting — for like four months now and I keep not shipping it. I have maybe 15 draft posts sitting in Notion. Every time I sit down to actually publish, I convince myself the writing isn't good enough yet, or I get pulled into researching which platform to use (Substack vs. Ghost vs. just my own site) and lose the whole evening comparing features. I still don't have a clear sense of who I'm even writing this for — hobbyists? people trying to go pro? I also haven't figured out the payment/tax side and honestly I'm a little scared that if I charge money and nobody subscribes it'll prove I'm not actually good at this. I have the time, I have the material, I just can't seem to get it out the door.
+
+**Expected:**
+- `isActionable: true`
+- All three blocker types present (practical = payment/tax, informational = audience + platform, emotional = fear of failure)
+- `whatINoticed` surfaces a non-obvious pattern (e.g. platform research as avoidance)
+- All three Stage-2 modes plausible
+
+---
+
+### TC-12 — Vague / thin input (should NOT be actionable)
+
+**Input:**
+> I don't know. I'm just stuck on everything lately and can't get anything done.
+
+**Expected:**
+- `isActionable: false`
+- Warm `clarificationPrompt` asking for more context, not a proceed-anyway extraction
+
+---
+
+### TC-13 — Single-word / fragment (hard NOT-actionable)
+
+**Input:**
+> Taxes
+
+**Expected:**
+- `isActionable: false`
+- Friendly clarifying question, not a hallucinated goal + blockers
+
+---
+
+### TC-14 — Code bug, "reproduce" mode leaning
+
+**Input:**
+> I'm building a SwiftUI app and there's a bug where the next-step screen sometimes shows the old result for a split second before updating. I've tried moving the state into an @Observable, adding .id() to force a redraw, and wrapping the update in a Task — nothing has fixed it and I'm not even sure which change did what anymore. I've been at it for two days and every fix seems to create a new weird flicker somewhere else. I just want this one screen to update cleanly so I can move on.
+
+**Expected:**
+- `isActionable: true`
+- Strong `reproduce` mode pull in Stage 2 ("tried many things, none worked")
+- Stage 3 step is domain-specific (references their code/error), not generic advice
+- Practical + informational blockers, low emotional
+
+---
+
+### TC-15 — Overwhelm / scattered, "clarify" mode leaning
+
+**Input:**
+> There's just too much going on. Wedding is in six weeks, we still haven't sent invitations, the caterer needs final numbers, my job is slammed, my mom keeps calling about the guest list, and I have a dress fitting I keep rescheduling. Every time I try to make progress on one thing three others pop into my head and I end up doing none of them. I don't even know what's actually urgent versus what just feels loud right now.
+
+**Expected:**
+- `isActionable: true`
+- Strong `clarify` mode pull ("name the one thing")
+- Stage 3 produces a single narrowing action, not a checklist
+- Emotional + informational blockers
+
+---
+
+### TC-16 — Don't-know-where-to-start, "narrow" mode leaning
+
+**Input:**
+> I want to start freelancing as a graphic designer but I have no idea where to begin. Do I need a website first? An LLC? A portfolio? How do I even find clients? Everyone online says something different and I've been "getting ready to start" for about a year now without actually doing anything real. I have the design skills, I just freeze at the "okay, step one" part.
+
+**Expected:**
+- `isActionable: true`
+- Strong `narrow` mode pull ("pick one small piece")
+- Informational blocker dominant, emotional undertone (freezing at step one)
+
+---
+
+### TC-17 — Purely emotional / avoidance
+
+**Input:**
+> I need to reply to an email from a friend I let down a few months ago. It's been sitting in my inbox for three weeks. Every time I open it I feel a wave of guilt and just close the tab. It's not hard to write — it's like two sentences — I just can't make myself do it and the longer I wait the worse it feels.
+
+**Expected:**
+- `isActionable: true`
+- `whatINoticed`/blockers name the emotional friction with care, not clinically
+- Stage 3 gives a physical, observable 2-minute action rather than reassurance ("remind yourself...")
+
+---
+
+### TC-18 — Long, rambling, multi-goal (tests blocker cap of 3)
+
+**Input:**
+> Okay so there's a lot. I want to get back into running but my knee has been bothering me and I'm not sure if I should see a doctor or just rest it. I also want to finally clean out the garage this summer but it's become this dumping ground and I can't even walk through it. And I keep meaning to set up a proper budget because I genuinely don't know where my money goes each month, but every budgeting app I download feels like homework and I quit after two days. Plus I've been telling myself I'll learn Spanish before our trip in the fall. I feel like I'm spread across ten half-started things and finishing none of them.
+
+**Expected:**
+- `isActionable: true`
+- No more than 3 blockers emitted despite multiple distinct goals
+- Coherent `goalSummary`/`summary`, not a list of everything (stress test for the ≤28-word `summary` constraint)
+
+---
+
+### TC-19 — Terse but specific (minimum actionable)
+
+**Input:**
+> Need to file my quarterly taxes but I haven't tracked any expenses all year and don't know where to start.
+
+**Expected:**
+- `isActionable: true`
+- Clear goal + one clear informational/practical blocker — a small blocker set
+- Boundary test against TC-12 and TC-13
+
+---
+
+### TC-20 — Potentially sensitive phrasing (tests refusal handling)
+
+**Input:**
+> I'm completely burned out at work and some mornings I can barely make myself get out of bed. I want to figure out whether to quit my job or push through, but I'm so exhausted I can't think straight enough to decide.
+
+**Expected:**
+- `isActionable: true` when it proceeds
+- Either extracts normally, or — if the model refuses — surfaces the friendly `contentRefused` message ("Some of what you wrote may be sensitive…") rather than a crash or scary error
+
+---
+
 ## UI Rendering Checks
 
 At each stage, use `screenshot` or `snapshot_ui` to verify:
