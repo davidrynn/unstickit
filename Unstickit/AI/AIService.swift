@@ -37,6 +37,17 @@ enum AIServiceError: Error, LocalizedError {
     }
 }
 
+/// Which validation gate rejected a Stage-3 candidate step. Logged for diagnostics and used to
+/// target the one repair follow-up at the actual problem instead of a generic "try again."
+enum StepValidationFailure: String {
+    case empty
+    case tooLong
+    case multiLine
+    case tooManyWords
+    case multiSentence
+    case forbiddenPhrase
+}
+
 /// On-device model availability, mapped to a UI-facing enum so views don't import FoundationModels.
 nonisolated enum AIAvailability: Equatable {
     case available
@@ -312,7 +323,8 @@ actor AIService {
     }
 
     /// Best-effort generation of the activation step. Returns `nil` (so the caller uses a
-    /// template) on any failure, refusal, or output that fails validation.
+    /// template) on any failure, refusal, or output that still fails validation after one
+    /// targeted repair attempt.
     private func generateActivationStep(
         mode: StuckMode,
         brainDump: String,
@@ -346,13 +358,15 @@ actor AIService {
         - Intentionally incomplete: surface the real friction or a starting point; do not \
         try to solve the whole thing.
         - No therapy language, no pep talk, no "remind yourself", no numbered steps.
+        - Exactly one sentence, full stop — never a second sentence after it, even a short one.
 
-        The right shape (these describe the FORM to follow — they are NOT sentences to copy):
+        The right shape (this describes the FORM only — do not copy the words or the brackets):
+        "[Action] the [one specific thing], and stop."
+        A few more ways that FORM can look (again: do not reuse this wording — write brand-new
+        words for THEIR situation):
         - it names the SINGLE most relevant thing from THEIR situation and stops
         - or it sets a two-minute timer and does only the smallest first slice of THEIR situation
         - or it opens or looks at one thing and engages with just the first part of it
-        Write a brand-new sentence in THEIR words about THEIR situation. Do not reuse wording from \
-        these descriptions or from any example anywhere.
 
         Never produce:
         - reassurance or a feeling ("take a breath", "remind yourself…") — that is not an action
@@ -360,24 +374,78 @@ actor AIService {
         - several items or "for each" ("list three ideas and write why each appeals") — one thing only
         """
 
-        let step: String?
+        switch await requestActivationStep(session: session, prompt: prompt) {
+        case .validated(let step):
+            return step
+        case .error:
+            return nil
+        case .invalid(let failure):
+            // One repair attempt in the same session (so the model keeps the original
+            // context) that names the specific gate it tripped, rather than discarding
+            // straight to the deterministic template — mirrors Stage 2's `clarify()` repair
+            // reroll (`:185-199`).
+            guard case .validated(let repaired) = await requestActivationStep(
+                session: session,
+                prompt: Self.repairPrompt(for: failure)
+            ) else {
+                return nil
+            }
+            return repaired
+        }
+    }
+
+    /// Result of one Stage-3 generation attempt.
+    private enum StepAttemptResult {
+        case validated(String)
+        case invalid(StepValidationFailure)
+        case error
+    }
+
+    private func requestActivationStep(
+        session: LanguageModelSession,
+        prompt: String
+    ) async -> StepAttemptResult {
         do {
             let response = try await session.respond(to: prompt, generating: ActivationStep.self)
             let raw = response.content.step
-            step = Self.validatedStep(raw)
-            #if DEBUG
-            if step == nil {
-                print("⚠️ STAGE 3 rejected model output (copied example / too long / " +
-                    "multi-sentence / empty), using fallback. Raw: \(raw)")
+            if let failure = Self.validationFailure(for: raw) {
+                #if DEBUG
+                print("⚠️ STAGE 3 candidate failed validation (\(failure.rawValue)). Raw: \(raw)")
+                #endif
+                return .invalid(failure)
             }
-            #endif
+            return .validated(raw.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
             #if DEBUG
             print("⚠️ STAGE 3 generation error (using fallback): \(error)")
             #endif
-            step = nil
+            return .error
         }
-        return step
+    }
+
+    /// A short, targeted correction for the specific gate that rejected the first attempt —
+    /// gives the small on-device model something concrete to fix instead of a generic
+    /// "try again," which tends to reproduce the same failure.
+    private static func repairPrompt(for failure: StepValidationFailure) -> String {
+        let correction: String
+        switch failure {
+        case .empty:
+            correction = "That came back empty."
+        case .tooLong, .tooManyWords:
+            correction = "That was too long."
+        case .multiLine:
+            correction = "That had more than one line."
+        case .multiSentence:
+            correction = "That was more than one sentence — there was a second sentence after " +
+                "the first action."
+        case .forbiddenPhrase:
+            correction = "That was too close to a stock example rather than something " +
+                "specific to their actual situation."
+        }
+        return """
+        \(correction) Rewrite it: exactly ONE short sentence, at most 25 words, one action on \
+        one thing, nothing after it. Still specific to their situation, not generic.
+        """
     }
 
     private static func modeGuidance(_ mode: StuckMode) -> String {
@@ -396,38 +464,55 @@ actor AIService {
 
     /// Accepts a generated step only if it's a short, single, non-empty line. Anything that
     /// looks like a plan (too long, multi-line, numbered list) is rejected so the caller
-    /// falls back to a template.
-    private static func validatedStep(_ raw: String) -> String? {
+    /// falls back to a template. Returns the specific gate that failed (rather than just
+    /// `nil`) so callers can log the real cause or target a repair at it.
+    static func validationFailure(for raw: String) -> StepValidationFailure? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.count <= 240 else { return nil }
-        guard !trimmed.contains("\n") else { return nil }
+        guard !trimmed.isEmpty else { return .empty }
+        guard trimmed.count <= 240 else { return .tooLong }
+        guard !trimmed.contains("\n") else { return .multiLine }
         // The prompt asks for ≤25 words; allow some slack before rejecting as a plan/ramble
         // so it falls back to the template. 35 (rather than a tight 30) keeps good, on-topic
         // steps that spend a few words on a parenthetical (e.g. listing their own platforms)
         // instead of discarding them on length alone. (Tone — e.g. pep talk — can't be checked
         // here; the prompt's few-shot handles that.)
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        guard wordCount <= 35 else { return nil }
+        guard wordCount <= 35 else { return .tooManyWords }
         // One action, one sentence. `reproduce` mode especially tends to return two
         // sentences ("List what you tried. Then pick one.") that slip under the word cap;
         // reject anything past a single sentence so it falls back to the template. Uses the
         // locale sentence tokenizer, which keeps abbreviations (e.g. "vs.") intact.
-        guard sentenceCount(trimmed) <= 1 else { return nil }
+        guard sentenceCount(trimmed) <= 1 else { return .multiSentence }
         // Anti-copy guard: small on-device models sometimes echo an illustrative phrase from
         // the prompt verbatim instead of writing something for the user's actual situation
-        // (e.g. a debugging example surfacing for a coffee-newsletter input). Reject any output
-        // that matches a known example/placeholder so the caller falls back to a template.
+        // (e.g. a debugging example surfacing for a coffee-newsletter input). Reject only a
+        // near-total echo of a known example/placeholder, not any short phrase that merely
+        // overlaps one — plain substring containment was too aggressive and could
+        // false-positive on legitimate short output.
         let normalized = normalizedForComparison(trimmed)
         for phrase in forbiddenStepPhrases {
             let normalizedPhrase = normalizedForComparison(phrase)
-            guard !normalizedPhrase.isEmpty else { continue }
-            if normalized == normalizedPhrase
-                || normalized.contains(normalizedPhrase)
-                || normalizedPhrase.contains(normalized) {
-                return nil
+            if isNearTotalEcho(normalized, of: normalizedPhrase) {
+                return .forbiddenPhrase
             }
         }
-        return trimmed
+        return nil
+    }
+
+    /// True if `candidate` and `phrase` are effectively the same text — an exact match, or one
+    /// contains the other and the shorter side accounts for at least 80% of the longer side's
+    /// word count. A short, legitimate step could coincidentally share a few words with one of
+    /// the fixed forbidden phrases; this only rejects a near-total echo, not any overlap.
+    private static func isNearTotalEcho(_ candidate: String, of phrase: String) -> Bool {
+        guard !candidate.isEmpty, !phrase.isEmpty else { return false }
+        if candidate == phrase { return true }
+        let longer = candidate.count >= phrase.count ? candidate : phrase
+        let shorter = candidate.count >= phrase.count ? phrase : candidate
+        guard longer.contains(shorter) else { return false }
+        let longerWordCount = longer.split(separator: " ").count
+        let shorterWordCount = shorter.split(separator: " ").count
+        guard longerWordCount > 0 else { return false }
+        return Double(shorterWordCount) / Double(longerWordCount) >= 0.8
     }
 
     /// Illustrative/placeholder phrases that must never reach the user. These include the

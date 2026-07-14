@@ -462,6 +462,65 @@ struct AIContractTests {
     }
 }
 
+// MARK: - Stage 3 step validation (known_issues.md #2: "Write one thing…" repetition)
+
+struct StepValidationTests {
+    @Test func acceptsAShortSingleSentenceStep() {
+        let failure = AIService.validationFailure(
+            for: "Open the spreadsheet and read just the first row."
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func rejectsEmptyOutput() {
+        #expect(AIService.validationFailure(for: "   ") == .empty)
+    }
+
+    @Test func rejectsMultipleLines() {
+        let failure = AIService.validationFailure(
+            for: "Open the file.\nRead the first function."
+        )
+        #expect(failure == .multiLine)
+    }
+
+    @Test func rejectsMoreThanTwentyFiveWordsPastTheThirtyFiveWordSlack() {
+        let longStep = Array(repeating: "word", count: 40).joined(separator: " ") + "."
+        #expect(AIService.validationFailure(for: longStep) == .tooManyWords)
+    }
+
+    @Test func rejectsMoreThanOneSentence() {
+        // The known reproduce-mode failure mode called out in the code comment.
+        let failure = AIService.validationFailure(
+            for: "List what you tried. Then pick one."
+        )
+        #expect(failure == .multiSentence)
+    }
+
+    @Test func rejectsAnExactEchoOfAForbiddenPhrase() {
+        let failure = AIService.validationFailure(
+            for: "Open the file where the error happens and read just the first function."
+        )
+        #expect(failure == .forbiddenPhrase)
+    }
+
+    @Test func rejectsANearTotalEchoOfAForbiddenPhraseDespiteCasingAndPunctuationDifferences() {
+        let failure = AIService.validationFailure(
+            for: "open the FILE where the error happens, and read just the first function"
+        )
+        #expect(failure == .forbiddenPhrase)
+    }
+
+    @Test func acceptsALegitimateStepThatOnlyCoincidentallySharesAFewWordsWithAForbiddenPhrase() {
+        // Regression test for the loosened anti-copy guard (known_issues.md #2): plain
+        // substring containment used to reject any short output that overlapped a forbidden
+        // phrase at all, even without being an echo of it.
+        let failure = AIService.validationFailure(
+            for: "Open the file and skim the summary at the top."
+        )
+        #expect(failure == nil)
+    }
+}
+
 // MARK: - Session log (session_log_spec.md)
 
 @MainActor
