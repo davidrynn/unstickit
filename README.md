@@ -32,11 +32,16 @@ Three stages, entirely on-device:
 - **On-device AI, not a chatbot wrapper.** Runs entirely on Apple's on-device FoundationModels —
   no network call, no account, nothing collected. The model is a constrained stage inside a
   product loop (three tappable options), not an open text box.
-- **Made an unreliable small model production-safe.** Structured `@Generable` outputs,
+- **Made a limited small model production-safe.** Structured `@Generable` outputs,
   validation, dedup/repair-rerolls, and deterministic per-mode fallbacks so a usable step always
   renders, even when generation fails. See [ADR 0002](Docs/adr/0002-harden-the-unreliable-on-device-model.md).
 - **Privacy as architecture, not a setting.** The on-device decision and its tradeoffs are
   captured in [ADR 0001](Docs/adr/0001-keep-unstickit-on-device.md).
+- **No blanket MVVM layer, on purpose.** My normal policy is MVVM plus a dedicated service/data
+  layer; here I deliberately skipped the ViewModel-per-view layer to see how a small, heavily
+  AI-assisted SwiftUI app holds up on `@State`/`@Observable` alone, with a thin service/store
+  layer kept underneath. Worked well so far; long-term sustainability is still an open question.
+  See [ADR 0007](Docs/adr/0007-skip-mvvm-for-this-app.md).
 - **Spec-first, AI-assisted process.** Design and decisions were driven by specs and ADRs before
   code — see [AI_WORKFLOW.md](AI_WORKFLOW.md) and [Docs/adr](Docs/adr).
 
