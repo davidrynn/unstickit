@@ -5,8 +5,12 @@ struct FullScreenPauseLoaderOverlay: View {
     var dotCount: Int = 180
 
     var body: some View {
+        // Fully opaque on purpose: this overlay is a curtain for the navigation that
+        // happens behind it (`AppNavigation.pushBehindLoader`). A translucent material
+        // here let the outgoing and incoming screens cross-fade in view — both visible
+        // at once during the handoff.
         Rectangle()
-            .fill(.thinMaterial)
+            .fill(Color(.systemBackground))
             .ignoresSafeArea()
             .overlay {
                 VStack(spacing: 16) {

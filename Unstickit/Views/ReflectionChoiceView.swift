@@ -76,13 +76,15 @@ struct ReflectionChoiceView: View {
         }
         .disabled(isLoading)
         .opacity(isLoading ? 0.18 : 1)
-        .animation(.easeInOut(duration: 0.14), value: isLoading)
+        // Same 0.35s as the shared loader overlay so dim and loader fade as one.
+        .animation(.easeInOut(duration: 0.35), value: isLoading)
         .navigationTitle("Here's what I'm hearing")
         .navigationBarTitleDisplayMode(.inline)
-        // Clear the loader the inbound transition (dump → here) raised, now that this
-        // screen is on-screen. The shared overlay lives at the tab-shell root.
+        // Clear the loader the inbound transition (dump → here) raised — after the
+        // push has settled, so the loader never fades while two screens are moving
+        // beneath it. The shared overlay lives at the tab-shell root.
         .onAppear {
-            nav.loadingMessage = nil
+            nav.dismissLoaderAfterPushSettles()
             didPushNext = false
         }
         .onChange(of: model.generatedStep) { _, step in

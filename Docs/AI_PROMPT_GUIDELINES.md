@@ -13,18 +13,26 @@ This distinction is critical to the product philosophy.
 
 # Core Principle
 
-The AI is a **re-engagement tool**, not a **problem solver** or even a **clarity generator**.
+The AI is a **re-engagement tool**, not a **problem solver**.
 
-The goal is not insight. The goal is not the right step. The goal is **any step** — the
-smallest possible action that is easier to do than to avoid, so the user gets back to working.
+The goal is not insight. The goal is momentum. The best step is the **first real move on the
+user's actual task** — small enough to start immediately, concrete enough that they know
+exactly what to do, and specific to their situation.
 
-A user who opens their file after tapping this app has succeeded. A user who writes one
-sentence has succeeded. The step does not need to move them toward the solution. It just
-needs to break the paralysis.
+A user who opens the permit form after tapping this app has succeeded. The step does not
+need to solve anything — but it should **touch the real task**, not be an exercise *about*
+the task. Meta-work ("categorize your tasks", "write about why you're stuck") reads as a
+shrug; engagement ("open the application and gather the first document it asks for")
+restores momentum.
 
-The AI should **never attempt to solve the domain problem directly**, and should **not
-frame steps as useful toward the solution**. Useful steps can still feel like work.
-The bar is lower than that: the step just needs to produce movement.
+*(Revised 2026-07-15: an earlier version of this principle said the step should be
+"intentionally incomplete" and need not move the user toward the solution at all. In
+real-device use that steered the model toward reflective meta-exercises that users found
+unhelpful. The step should now be genuinely useful — a real first move — while still never
+solving or diagnosing.)*
+
+The AI should still **never attempt to solve the domain problem** — no diagnoses, no
+technical fixes, no multi-step plans. Starting is the AI's job; solving is the user's.
 
 ---
 
@@ -51,10 +59,11 @@ Examples:
 
 - Write down when the terrain hole appears
 - Try reproducing the bug once in isolation
-- List the three systems that could cause the issue
+- Open the project and run the game once, watching for the hole
 - Capture a screenshot and describe the failure condition
 
-These restore **momentum**.
+These restore **momentum**: each one is a first real move on the actual task, without
+presuming what the answer is.
 
 ---
 
@@ -96,6 +105,14 @@ The AI should:
 - identify obstacles
 - detect emotional friction
 - remain concise
+
+**Every blocker must trace back to something the user explicitly wrote.** Fewer blockers is
+better — one real blocker beats three padded ones. The three blocker types
+(practical/informational/emotional) are labels for what was found, **not slots to fill**: most
+inputs will not include all three, and the model must never invent a blocker to cover a
+missing type. (Observed failure, 2026-07-15: "app has problems" became a fabricated "there are
+bugs" practical blocker, while the user's one concrete fact — the app's name is wrong — was
+dropped. The fabrication then contaminated Stages 2 and 3.)
 
 ### Example Instruction
 
@@ -151,6 +168,14 @@ Each option maps to an internal `StuckMode` that constrains Stage 3 generation:
 - Each label must be a short first-person phrase specific to the user's situation
 - Labels should be immediately recognizable — not abstract or technical
 - Do not generate generic phrases ("I feel stuck") — make them situationally specific
+- **Ground the prompt in the user's verbatim brain dump**, not just the Stage 1 extraction.
+  The extraction is already abstracted (and can carry Stage 1 errors); without the user's own
+  words the model has no concrete nouns to build labels from and falls back to parroting its
+  own prompt. (Observed failure, 2026-07-15: all three options came back as near-verbatim
+  copies of the prompt's example and mode descriptions.)
+- Guard against prompt echoes in code, not just instructions: `AIService.isGenericOptionLabel`
+  rejects labels that mostly restate the prompt's example or mode descriptions, and an echoed
+  label triggers the same repair reroll as a missing mode.
 
 ### Good Option Labels
 
@@ -189,35 +214,38 @@ tap. The model only needs to fill in a situationally specific sentence in a know
 
 **`reproduce`** — User has tried multiple approaches with no success.
 
-Generate a step that helps them document or isolate the exact conditions that cause the problem.
+Point them back at the real thing with fresh eyes — open it, look at what actually
+happened, or write down the last result.
 
-> Write down the exact steps that reliably cause the terrain hole to appear.
+> Run the game once and write down exactly when the terrain hole appears.
 
 **`narrow`** — User isn't sure where to begin.
 
-Generate a step that helps them list possibilities or reduce scope.
+Pick the most concrete piece of their task and give them its very first move.
 
-> List the 2–3 systems most likely responsible for the terrain destruction bug.
+> Open the chunk-loading file and re-read just the section that stitches chunks together.
 
 **`clarify`** — User feels overwhelmed or scattered.
 
-Generate a step that helps them identify the one question they most need to answer.
+Pick the single most pressing task they mentioned and give them its very first move.
 
-> Open a note and write the single question you most need to answer about this bug.
+> Open the permit application and gather the first document it asks for.
 
 ### Key Rules
 
 The step must:
 
-- be startable within ~10 minutes
-- reduce uncertainty or overwhelm (not resolve it)
-- be written as a single action-first sentence
-- not attempt to solve the underlying problem
+- be the **first real move on their actual task**, startable right now
+- be one or two short sentences, at most ~30 words, starting with an action verb
+- name a specific thing from *their* situation (their form, their file, their phone call)
+- not attempt to solve the underlying problem or prescribe a multi-step plan
 
 ### Critical Constraint
 
-The AI should **not attempt to solve the underlying problem**. No technical fixes. No
-debugging solutions. No domain-specific recommendations.
+The AI should **not attempt to solve the underlying problem**. Naming the user's specific
+thing ("the permit form", "the chunk-loading file") is required; telling them what the
+answer is ("the bug is in your noise sampling") is not allowed. No technical fixes, no
+diagnoses, no multi-step plans.
 
 ---
 

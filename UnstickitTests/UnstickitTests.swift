@@ -483,29 +483,37 @@ struct StepValidationTests {
         #expect(failure == .multiLine)
     }
 
-    @Test func rejectsMoreThanTwentyFiveWordsPastTheThirtyFiveWordSlack() {
-        let longStep = Array(repeating: "word", count: 40).joined(separator: " ") + "."
+    @Test func acceptsTwoShortSentences() {
+        // Two short sentences are a valid step shape under the loosened Stage 3 contract.
+        let failure = AIService.validationFailure(
+            for: "Open the permit form. Gather the first document it asks for."
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func rejectsMoreThanThirtyWordsPastTheFortyFiveWordSlack() {
+        let longStep = Array(repeating: "word", count: 50).joined(separator: " ") + "."
         #expect(AIService.validationFailure(for: longStep) == .tooManyWords)
     }
 
-    @Test func rejectsMoreThanOneSentence() {
-        // The known reproduce-mode failure mode called out in the code comment.
+    @Test func rejectsMoreThanTwoSentences() {
+        // Three or more sentences reads as a plan, not a step.
         let failure = AIService.validationFailure(
-            for: "List what you tried. Then pick one."
+            for: "Open the file. Read the first function. Then write down what you see."
         )
         #expect(failure == .multiSentence)
     }
 
     @Test func rejectsAnExactEchoOfAForbiddenPhrase() {
         let failure = AIService.validationFailure(
-            for: "Open the file where the error happens and read just the first function."
+            for: "Open the permit application and gather the first document it asks for."
         )
         #expect(failure == .forbiddenPhrase)
     }
 
     @Test func rejectsANearTotalEchoOfAForbiddenPhraseDespiteCasingAndPunctuationDifferences() {
         let failure = AIService.validationFailure(
-            for: "open the FILE where the error happens, and read just the first function"
+            for: "open the PERMIT application, and gather the first document it asks for"
         )
         #expect(failure == .forbiddenPhrase)
     }
@@ -518,6 +526,38 @@ struct StepValidationTests {
             for: "Open the file and skim the summary at the top."
         )
         #expect(failure == nil)
+    }
+}
+
+// MARK: - Stage 2 option-label echo guard (known_issues.md #5: generic prompt-echo options)
+
+struct GenericOptionLabelTests {
+    // The three labels below are the actual output of a real session where the model
+    // parroted the Stage 2 prompt instead of grounding options in the user's situation.
+    @Test func rejectsTheObservedClarifyModeEcho() {
+        #expect(AIService.isGenericOptionLabel("I feel overwhelmed and can't focus."))
+    }
+
+    @Test func rejectsTheObservedNarrowModeEcho() {
+        #expect(AIService.isGenericOptionLabel("I'm unsure where to begin or what the real cause is."))
+    }
+
+    @Test func rejectsTheObservedReproduceModeEchoOfThePromptExample() {
+        #expect(AIService.isGenericOptionLabel("I keep trying fixes but nothing works."))
+    }
+
+    @Test func rejectsAnEchoOfTheCurrentPromptExample() {
+        #expect(AIService.isGenericOptionLabel("I keep redoing the budget section and it still feels wrong."))
+    }
+
+    @Test func acceptsAGroundedLabelThatSharesShapeWithTheExample() {
+        // Same sentence shape as the prompt example, but carries the user's own nouns —
+        // coverage against any known phrase stays below the echo threshold.
+        #expect(!AIService.isGenericOptionLabel("I keep patching the app and it still doesn't feel right."))
+    }
+
+    @Test func acceptsAGroundedLabelAboutTheUsersSituation() {
+        #expect(!AIService.isGenericOptionLabel("The app's name being wrong makes everything feel broken."))
     }
 }
 

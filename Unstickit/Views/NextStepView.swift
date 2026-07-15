@@ -101,10 +101,10 @@ struct NextStepView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.6), value: didReveal)
         .sensoryFeedback(.success, trigger: didReveal)
         // Clear the "Generating your next step..." loader now that this screen is
-        // on-screen — the shared overlay stayed up through the push transition —
-        // then play the arrival flourish once the push has settled.
+        // on-screen — the shared overlay stayed up through the push transition and
+        // holds until the push settles — then play the arrival flourish.
         .onAppear {
-            nav.loadingMessage = nil
+            nav.dismissLoaderAfterPushSettles()
             model.recordSession()   // silently persist this session as an open loop
             revealStep()
         }
@@ -117,12 +117,13 @@ struct NextStepView: View {
         }
     }
 
-    // Let the navigation push settle, then trigger the success haptic + checkmark
-    // so the arrival reads as a deliberate flourish rather than fighting the push.
+    // Trigger the success haptic + checkmark only once this screen is actually in
+    // view: the shared loader holds ~0.45s after arrival (dismissLoaderAfterPushSettles)
+    // and fades over 0.35s, so anything earlier would flourish behind the curtain.
     private func revealStep() {
         guard !didReveal else { return }
         Task {
-            try? await Task.sleep(for: .seconds(0.2))
+            try? await Task.sleep(for: .seconds(0.95))
             didReveal = true
         }
     }

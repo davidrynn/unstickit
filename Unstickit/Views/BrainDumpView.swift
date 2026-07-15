@@ -19,6 +19,12 @@ struct BrainDumpView: View {
     /// persist across the push to the choice screen; this screen only reads it.
     private var isLoading: Bool { nav.loadingMessage != nil }
 
+    /// The hero/subtitle/deferred-card chrome stays collapsed through the loading
+    /// phase, not just while focused: submit resigns focus, and letting the hero
+    /// re-expand right as the screen dims made the handoff to the loader feel busy.
+    /// It re-expands only once loading resolves (error return, or coming back later).
+    private var isCompact: Bool { isEditorFocused || isLoading }
+
     private var trimmedDraft: String {
         draft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -37,8 +43,9 @@ struct BrainDumpView: View {
         // the action button stays pinned and visible (flow_redesign_spec.md §4).
         VStack(spacing: 0) {
             // Soft return point for a step deferred yesterday
-            // (come_back_tomorrow_spec.md §7). Shown above the prompt.
-            if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed {
+            // (come_back_tomorrow_spec.md §7). Shown above the prompt. Yields while the
+            // editor is focused — see the header comment below on keyboard height.
+            if let deferred = stepStore.dueDeferredStep, !deferredCardDismissed, !isCompact {
                 DeferredReturnCard(
                     step: deferred,
                     onStart: { deferredCardDismissed = true },
@@ -50,23 +57,31 @@ struct BrainDumpView: View {
                 .padding(.bottom, 20)
             }
 
+            // The hero wordmark and subtitle collapse while the editor is focused: on
+            // SE-class screens the keyboard plus this fixed chrome left the editor a
+            // ~10pt sliver with the typed text invisible (known_issues.md §4). The title
+            // stays so the screen keeps its anchor while typing.
             VStack(alignment: .center, spacing: 16) {
-                SandTextView(text: "Clear Next Step",
-                             seed: 23,
-                             dotCount: 400,
-                             dotColor: sandBlue,
-                             backgroundColor: .clear)
-                    .frame(height: 120)
-                    .frame(maxWidth: .infinity)
+                if !isCompact {
+                    SandTextView(text: "Clear Next Step",
+                                 seed: 23,
+                                 dotCount: 400,
+                                 dotColor: sandBlue,
+                                 backgroundColor: .clear)
+                        .frame(height: 120)
+                        .frame(maxWidth: .infinity)
+                }
 
                 VStack(alignment: .center, spacing: 6) {
                     Text("What are you stuck on?")
                         .font(.title3)
                         .fontWeight(.semibold)
 
-                    Text("Write whatever comes to mind")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if !isCompact {
+                        Text("Write whatever comes to mind")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -120,9 +135,15 @@ struct BrainDumpView: View {
             // Breathing room so the button doesn't crowd the floating tab bar.
             .padding(.bottom, 16)
         }
-        .disabled(isLoading)
+        // No `.disabled(isLoading)` here: the full-screen loader overlay already blocks
+        // touches, and disabling the focused TextEditor in the same transaction as the
+        // submit-time focus resign wedges it — @FocusState and the first responder
+        // desync, and the editor can never regain focus after an error return.
+        // Dim in step with the shared loader overlay (RootTabView) — same 0.35s so the
+        // handoff reads as one gentle fade, not two competing ones.
         .opacity(isLoading ? 0.18 : 1)
-        .animation(.easeInOut(duration: 0.14), value: isLoading)
+        .animation(.easeInOut(duration: 0.35), value: isLoading)
+        .animation(.easeInOut(duration: 0.25), value: isCompact)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -180,7 +201,6 @@ struct BrainDumpView: View {
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .focused($isEditorFocused)
-                .disabled(isLoading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -231,6 +251,11 @@ struct BrainDumpView: View {
             return
         }
 
+        // Drop the keyboard before the loader goes up: on short screens a still-focused
+        // editor meant an error returned to a keyboard-covered layout where the dump was
+        // invisible (known_issues.md §4).
+        isEditorFocused = false
+
         // Show the shared loader and keep it up across the push: the destination
         // (`ReflectionChoiceView`) clears `nav.loadingMessage` in its `.onAppear`,
         // so it never blinks off mid-transition.
@@ -253,7 +278,10 @@ struct BrainDumpView: View {
                 // Hold the loader through clarification. If it fails (but extraction
                 // succeeded), still advance to the choice screen with the summary and
                 // let that screen offer a retry — don't dead-end on the dump.
-                let clarification = try? await AIService.shared.clarify(extraction: extraction)
+                let clarification = try? await AIService.shared.clarify(
+                    extraction: extraction,
+                    brainDump: trimmed
+                )
                 // Non-animated push so the loader hides the navigation entirely
                 // (cleared by ReflectionChoiceView.onAppear).
                 nav.pushBehindLoader(

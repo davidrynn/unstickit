@@ -83,7 +83,10 @@ final class ReflectionChoiceModel: ObservableObject {
     /// loader clears on success.
     func somethingElse() {
         run(message: "Finding other options...", clearLoaderOnSuccess: true) {
-            let result = try await AIService.shared.clarify(extraction: self.extraction)
+            let result = try await AIService.shared.clarify(
+                extraction: self.extraction,
+                brainDump: self.brainDump
+            )
             self.options = result.options
             self.optionsFailed = false
             self.rerollCount += 1
@@ -94,7 +97,10 @@ final class ReflectionChoiceModel: ObservableObject {
     /// screen, so the loader clears on success.
     func retryOptions() {
         run(message: "Finding your options...", clearLoaderOnSuccess: true) {
-            let result = try await AIService.shared.clarify(extraction: self.extraction)
+            let result = try await AIService.shared.clarify(
+                extraction: self.extraction,
+                brainDump: self.brainDump
+            )
             self.options = result.options
             self.optionsFailed = false
         } onError: {

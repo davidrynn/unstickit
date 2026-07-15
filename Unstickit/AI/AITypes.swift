@@ -90,19 +90,21 @@ struct ClarificationOption {
 
 @Generable
 struct ClarificationResult {
-    /// Exactly 3 options — one per StuckMode — shown as tappable buttons
-    @Guide(description: "Exactly 3 options, one for each StuckMode (reproduce, narrow, clarify), each with a label specific to the user's situation")
+    /// Exactly 3 options — one per StuckMode — shown as tappable buttons. The `.count(3)`
+    /// constraint enforces the count at the guided-generation schema level; it cannot enforce
+    /// one-per-mode, so `AIService.clarify()` still dedups/rerolls on mode coverage.
+    @Guide(description: "Exactly 3 options, one for each StuckMode (reproduce, narrow, clarify), each with a label specific to the user's situation", .count(3))
     var options: [ClarificationOption]
 }
 
 // MARK: - Stage 3: Next Step Generation
 
-/// The model-generated activation step. Guided to be tiny and intentionally
-/// incomplete; a deterministic template is used as a fallback if generation fails
+/// The model-generated activation step. Guided to be the first real, concrete move on the
+/// user's actual task; a deterministic template is used as a fallback if generation fails
 /// or the output doesn't pass validation (see `AIService.generateNextStep`).
 @Generable
 struct ActivationStep {
-    @Guide(description: "One very small first action the user can do in under two minutes right now, written as a single imperative sentence of at most 25 words. It must be ONE action on ONE thing — never two actions joined by 'and', never several items, never 'three things' or 'for each'. It must be finishable in under two minutes — reading one thing, writing a single sentence, or making one small choice; NEVER a summary, a draft, an outline, a list of items, or more than one sentence of writing. It must fit their specific situation and use their own domain — not generic advice. It should surface the real friction or a starting point, NOT solve the whole problem; it is intentionally incomplete. No therapy language, no encouragement, no multi-step plans, no numbered lists.")
+    @Guide(description: "One simple, concrete first action on the user's actual task — the first real move, startable right now. One or two short sentences, at most 30 words total, starting with an action verb and naming a specific thing from their situation. Not advice, not a plan, not a numbered list, no therapy language.")
     var step: String
 }
 

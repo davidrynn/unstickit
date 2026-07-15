@@ -90,6 +90,30 @@ actor AIService {
     // MARK: - Stage 1: Extraction
 
     func extract(from brainDump: String) async throws -> ExtractionResult {
+        #if DEBUG
+        // UI-test hooks (mirror ContentView's UI_BYPASS_AI_GATE), both with a short
+        // "thinking" delay: UI_FORCE_EXTRACT_ERROR=1 simulates a processing failure;
+        // UI_MOCK_AI=1 returns canned results so the full flow (dump → reflection →
+        // next step) can be exercised on simulators without Apple Intelligence.
+        if ProcessInfo.processInfo.environment["UI_FORCE_EXTRACT_ERROR"] == "1" {
+            try await Task.sleep(for: .seconds(1.5))
+            throw AIServiceError.extractionFailed
+        }
+        if ProcessInfo.processInfo.environment["UI_MOCK_AI"] == "1" {
+            try await Task.sleep(for: .seconds(1.5))
+            return ExtractionResult(
+                isActionable: true,
+                clarificationPrompt: nil,
+                goalSummary: "You want to make steady progress on your app.",
+                blockers: [
+                    Blocker(description: "Bugs keep eating the time you set aside.",
+                            type: .practical)
+                ],
+                frictionSummary: "Every session starts with friction instead of momentum.",
+                summary: "You want to ship your app, but recurring bugs keep making the next step feel unclear."
+            )
+        }
+        #endif
         let model = SystemLanguageModel.default
         guard case .available = model.availability else {
             throw AIServiceError.modelUnavailable
@@ -107,11 +131,15 @@ actor AIService {
         Analyze their input and produce:
         - goalSummary: A single warm sentence reflecting back what they are trying to accomplish, \
         written as if you genuinely understand why it matters to them. Write in second person.
-        - blockers: 1 to 3 blockers they actually described, in plain human language — not \
-        clinical labels. Each should feel like something a thoughtful friend would name — how it \
-        feels from the inside, not how it looks from outside. \
+        - blockers: the blockers they actually described, in plain human language — not \
+        clinical labels. 1 to 3, and fewer is better: if they only described one, return only \
+        one. NEVER invent a blocker to fill out the list — every blocker must trace back to \
+        something they explicitly wrote. Each should feel like something a thoughtful friend \
+        would name — how it feels from the inside, not how it looks from outside. \
         Assign each a type: practical (missing resources, access, or skills), \
-        informational (unclear path or decision needed), or emotional (fear, avoidance, self-doubt).
+        informational (unclear path or decision needed), or emotional (fear, avoidance, \
+        self-doubt). Most inputs will NOT include all three types — never add a blocker just \
+        to cover a missing type.
         - frictionSummary: A single warm sentence that names what is making this genuinely hard — \
         emotionally, practically, or both. Write it with care, not detachment. Use second person.
         - summary: A short second-person display line — one sentence, at most 28 words — that \
@@ -182,72 +210,103 @@ actor AIService {
 
     // MARK: - Stage 2: Clarification Options
 
-    func clarify(extraction: ExtractionResult) async throws -> ClarificationResult {
+    func clarify(extraction: ExtractionResult, brainDump: String) async throws -> ClarificationResult {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UI_MOCK_AI"] == "1" {
+            return ClarificationResult(options: [
+                ClarificationOption(label: "I keep hitting the same bugs over and over",
+                                    mode: .reproduce),
+                ClarificationOption(label: "I'm not sure which fix to start with",
+                                    mode: .narrow),
+                ClarificationOption(label: "It all feels like too much at once",
+                                    mode: .clarify),
+            ])
+        }
+        #endif
         let model = SystemLanguageModel.default
         guard case .available = model.availability else {
             throw AIServiceError.modelUnavailable
         }
 
         // The small on-device model often returns duplicate modes (e.g. clarify ×2,
-        // no reproduce) or the wrong count, which violates the "exactly 3, one per
-        // StuckMode" contract (spec §6). Normalize to one option per mode; if a mode is
-        // missing, do one repair reroll. Keep a deduped best-effort set rather than
+        // no reproduce), the wrong count, or labels that just parrot the prompt's own
+        // example/mode descriptions instead of the user's situation. Normalize to one
+        // non-generic option per mode; if a mode is missing or only covered by a generic
+        // echo, do one repair reroll. Keep a deduped best-effort set rather than
         // dead-ending (or showing duplicate-mode rows) if the model still misbehaves.
-        let first = try await requestClarification(extraction: extraction)
+        let first = try await requestClarification(extraction: extraction, brainDump: brainDump)
         if let complete = oneOptionPerMode(first) {
             return complete
         }
-        guard let second = try? await requestClarification(extraction: extraction) else {
+        guard let second = try? await requestClarification(extraction: extraction, brainDump: brainDump) else {
             return dedupByMode(first)
         }
         if let complete = oneOptionPerMode(second) {
             return complete
         }
-        // Neither attempt covered all three modes — return whichever deduped set has more.
+        // Neither attempt produced a full non-generic set — return whichever deduped set is
+        // better: more grounded labels first, then more coverage.
         let a = dedupByMode(first)
         let b = dedupByMode(second)
-        return b.options.count > a.options.count ? b : a
+        func score(_ r: ClarificationResult) -> (Int, Int) {
+            (r.options.filter { !Self.isGenericOptionLabel($0.label) }.count, r.options.count)
+        }
+        return score(b) > score(a) ? b : a
     }
 
-    /// Exactly 3 options, one per `StuckMode` in canonical order, or `nil` if any mode
-    /// is missing. Drops duplicates and extras.
+    /// Exactly 3 options, one per `StuckMode` in canonical order, or `nil` if any mode is
+    /// missing or covered only by a generic prompt-echo label. Drops duplicates and extras.
     private func oneOptionPerMode(_ result: ClarificationResult) -> ClarificationResult? {
         var picked: [ClarificationOption] = []
         for mode in StuckMode.allModes {
-            guard let option = result.options.first(where: { $0.mode == mode }) else { return nil }
+            guard let option = result.options.first(where: {
+                $0.mode == mode && !Self.isGenericOptionLabel($0.label)
+            }) else { return nil }
             picked.append(option)
         }
         return ClarificationResult(options: picked)
     }
 
-    /// Keep the first option for each mode, so no two rows share a `StuckMode` even when
-    /// the set is incomplete (1–2 options).
+    /// Best-effort set when no attempt was complete: one option per covered mode, preferring
+    /// a grounded label over a generic echo, but keeping an echo rather than dropping the row
+    /// entirely — a generic tappable option still beats a missing one.
     private func dedupByMode(_ result: ClarificationResult) -> ClarificationResult {
-        var seen = Set<StuckMode>()
-        let kept = result.options.filter { seen.insert($0.mode).inserted }
+        var kept: [ClarificationOption] = []
+        for mode in StuckMode.allModes {
+            let candidates = result.options.filter { $0.mode == mode }
+            if let best = candidates.first(where: { !Self.isGenericOptionLabel($0.label) }) ?? candidates.first {
+                kept.append(best)
+            }
+        }
         return ClarificationResult(options: kept)
     }
 
-    private func requestClarification(extraction: ExtractionResult) async throws -> ClarificationResult {
+    private func requestClarification(extraction: ExtractionResult, brainDump: String) async throws -> ClarificationResult {
         let session = LanguageModelSession()
         let prompt = """
-        Based on this stuck situation, generate exactly 3 short options that describe \
-        how the user might be feeling stuck right now.
+        Someone is stuck. In their own words:
 
-        Each option must be a short first-person phrase the user can tap to identify with \
-        (e.g. "I keep trying fixes but nothing works").
-        Each option must be specific to this situation — not generic.
-        Do NOT copy blocker text. Write new phrases that feel natural to say aloud. \
-        The blocker context is for understanding only — the options must be original.
-        One option must be generated for each of the three modes below:
+        \(brainDump)
 
-        reproduce — the user has tried multiple approaches and none have worked
-        narrow — the user isn't sure where to begin or what the real cause is
-        clarify — the user feels overwhelmed or scattered and can't focus
-
+        What you reflected back to them:
         Goal: \(extraction.goalSummary)
-        Blockers: \(extraction.blockers.map(\.description).joined(separator: ", "))
         Friction: \(extraction.frictionSummary)
+
+        Generate exactly 3 short options that describe how they might be feeling stuck right \
+        now — first-person phrases they can tap to identify with. One option for each of the \
+        three modes:
+
+        reproduce — they've tried things and nothing has worked
+        narrow — they aren't sure where to begin or what the real problem is
+        clarify — they feel overwhelmed or scattered
+
+        Every label must mention something specific from their own words — their task, their \
+        project, the thing that's wrong — so it could not apply to anyone else. A bare feeling \
+        with nothing of theirs in it ("I feel overwhelmed and can't focus") is not acceptable.
+
+        Example of the right shape, for someone stuck on a grant application: "I keep redoing \
+        the budget section and it still feels wrong." Write brand-new phrases from their own \
+        situation — never reuse this example.
         """
 
         do {
@@ -276,6 +335,35 @@ actor AIService {
         }
     }
 
+    /// True when a Stage-2 option label merely restates the prompt's own example or one of
+    /// the mode descriptions instead of referencing the user's situation — a failure observed
+    /// in real sessions (all three options came back as near-verbatim prompt text, e.g.
+    /// "I feel overwhelmed and can't focus."). Coverage-based rather than containment-based:
+    /// an echo often drops a word or two ("or scattered"), so a label counts as generic when
+    /// at least 80% of its words appear in one of the known phrases. A label that adds the
+    /// user's own nouns dilutes coverage below the threshold and passes.
+    static func isGenericOptionLabel(_ label: String) -> Bool {
+        let tokens = normalizedForComparison(label).split(separator: " ")
+        guard !tokens.isEmpty else { return true }
+        for phrase in genericOptionPhrases {
+            let phraseTokens = Set(normalizedForComparison(phrase).split(separator: " "))
+            let covered = tokens.filter { phraseTokens.contains($0) }.count
+            if Double(covered) / Double(tokens.count) >= 0.8 { return true }
+        }
+        return false
+    }
+
+    /// The Stage-2 prompt text the model is known to parrot: the illustrative example (current
+    /// and previous wording) and first-person recastings of the three mode descriptions.
+    private static let genericOptionPhrases: [String] = [
+        "I keep redoing the budget section and it still feels wrong.",
+        "I keep trying fixes but nothing works.",
+        "I've tried multiple approaches and none have worked.",
+        "I've tried things and nothing has worked.",
+        "I'm not sure where to begin or what the real cause is.",
+        "I feel overwhelmed or scattered and can't focus."
+    ]
+
     // MARK: - Stage 3: Next Step Generation
 
     func generateNextStep(
@@ -284,6 +372,15 @@ actor AIService {
         brainDump: String,
         selectedOptionLabel: String
     ) async throws -> NextStepResult {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UI_MOCK_AI"] == "1" {
+            try await Task.sleep(for: .seconds(1.5))
+            return NextStepResult(
+                nextStep: fallbackStep(for: selectedMode),
+                fallbackStep: smallerFallbackStep(for: selectedMode)
+            )
+        }
+        #endif
         let model = SystemLanguageModel.default
         guard case .available = model.availability else {
             throw AIServiceError.modelUnavailable
@@ -333,45 +430,25 @@ actor AIService {
     ) async -> String? {
         let session = LanguageModelSession()
         let prompt = """
-        Someone is stuck and has chosen how they feel stuck. Give them ONE tiny next \
-        action — something concrete they can do in about two minutes that gets them moving. \
-        It is a starting nudge, not a plan or a solution.
+        Someone is stuck and needs one simple, concrete first action to get moving again.
 
         Their situation: \(brainDump)
         What you reflected back to them: \(summary)
         How they say they're stuck: "\(optionLabel)"
 
-        Match the action to this kind of stuckness:
         \(Self.modeGuidance(mode))
 
-        Rules:
-        - Begin with a concrete action verb: Write, Open, Pick, Find, Put, Set a timer, \
-        Look at. The step must be a physical, observable action — NOT a feeling, a mindset, or \
-        reassurance.
-        - ONE action on ONE thing — a single imperative sentence, at most 25 words. NOT two \
-        actions joined by "and", NOT several items, NOT "three things" and NOT "for each". Just \
-        one small move.
-        - It must be finishable in under two minutes: read one thing, write a single sentence, \
-        or make one small choice. NEVER ask them to write a summary, a draft, an outline, a \
-        list of items, or more than one sentence — that is too big.
-        - Concrete and specific to THEIR situation — use their domain, not generic advice.
-        - Intentionally incomplete: surface the real friction or a starting point; do not \
-        try to solve the whole thing.
-        - No therapy language, no pep talk, no "remind yourself", no numbered steps.
-        - Exactly one sentence, full stop — never a second sentence after it, even a short one.
+        Write ONE first action for them:
+        - The first real move on their actual task — not advice, not a plan, not a reflection \
+        on how they feel.
+        - Start with an action verb: Open, Write, Find, Pick, Set a timer, Look at.
+        - One or two short sentences, at most 30 words total.
+        - Name the specific thing from THEIR situation — their form, their file, their phone \
+        call — not something generic.
 
-        The right shape (this describes the FORM only — do not copy the words or the brackets):
-        "[Action] the [one specific thing], and stop."
-        A few more ways that FORM can look (again: do not reuse this wording — write brand-new
-        words for THEIR situation):
-        - it names the SINGLE most relevant thing from THEIR situation and stops
-        - or it sets a two-minute timer and does only the smallest first slice of THEIR situation
-        - or it opens or looks at one thing and engages with just the first part of it
-
-        Never produce:
-        - reassurance or a feeling ("take a breath", "remind yourself…") — that is not an action
-        - anything plan-sized or multi-step ("make a plan to get back on track")
-        - several items or "for each" ("list three ideas and write why each appeals") — one thing only
+        Example of the right shape, for someone putting off a permit application: "Open the \
+        permit application and gather the first document it asks for." Write brand-new words \
+        for their situation — never reuse this example.
         """
 
         switch await requestActivationStep(session: session, prompt: prompt) {
@@ -406,7 +483,14 @@ actor AIService {
         prompt: String
     ) async -> StepAttemptResult {
         do {
-            let response = try await session.respond(to: prompt, generating: ActivationStep.self)
+            // Lower temperature than the default: Stage 3 fights rambling, multi-sentence
+            // output with validation gates + a repair reroll, so trade creativity for
+            // instruction-following on the first attempt.
+            let response = try await session.respond(
+                to: prompt,
+                generating: ActivationStep.self,
+                options: GenerationOptions(temperature: 0.5)
+            )
             let raw = response.content.step
             if let failure = Self.validationFailure(for: raw) {
                 #if DEBUG
@@ -436,29 +520,29 @@ actor AIService {
         case .multiLine:
             correction = "That had more than one line."
         case .multiSentence:
-            correction = "That was more than one sentence — there was a second sentence after " +
-                "the first action."
+            correction = "That had more than two sentences — it read like a plan."
         case .forbiddenPhrase:
             correction = "That was too close to a stock example rather than something " +
                 "specific to their actual situation."
         }
         return """
-        \(correction) Rewrite it: exactly ONE short sentence, at most 25 words, one action on \
-        one thing, nothing after it. Still specific to their situation, not generic.
+        \(correction) Rewrite it: one concrete first action on their actual task, one or two \
+        short sentences, at most 30 words. Still specific to their situation, not generic.
         """
     }
 
     private static func modeGuidance(_ mode: StuckMode) -> String {
         switch mode {
         case .reproduce:
-            return "They've tried things that didn't work. Have them capture what they already " +
-                "tried, or what actually happened, so the real problem becomes visible."
+            return "They've tried things that didn't work. Point them back at the real thing " +
+                "with fresh eyes — open it, look at what actually happened, or write down the " +
+                "last result they got."
         case .narrow:
-            return "They don't know where to begin. Have them pick one small, specific piece to " +
-                "look at or name — shrink the scope to a single concrete thing."
+            return "They don't know where to begin. Pick the most concrete piece of their task " +
+                "and give them its very first move."
         case .clarify:
-            return "They feel overwhelmed and scattered. Have them name, in one sentence, the " +
-                "single thing they're most stuck on right now."
+            return "They're juggling too much at once. Pick the single most pressing task they " +
+                "mentioned and give them its very first move."
         }
     }
 
@@ -469,20 +553,18 @@ actor AIService {
     static func validationFailure(for raw: String) -> StepValidationFailure? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .empty }
-        guard trimmed.count <= 240 else { return .tooLong }
+        guard trimmed.count <= 280 else { return .tooLong }
         guard !trimmed.contains("\n") else { return .multiLine }
-        // The prompt asks for ≤25 words; allow some slack before rejecting as a plan/ramble
-        // so it falls back to the template. 35 (rather than a tight 30) keeps good, on-topic
-        // steps that spend a few words on a parenthetical (e.g. listing their own platforms)
-        // instead of discarding them on length alone. (Tone — e.g. pep talk — can't be checked
-        // here; the prompt's few-shot handles that.)
+        // The prompt asks for ≤30 words; allow slack to 45 before rejecting as a ramble so a
+        // good, on-topic step that runs a little long isn't discarded on length alone. (Tone —
+        // e.g. pep talk — can't be checked here; the prompt handles that.)
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        guard wordCount <= 35 else { return .tooManyWords }
-        // One action, one sentence. `reproduce` mode especially tends to return two
-        // sentences ("List what you tried. Then pick one.") that slip under the word cap;
-        // reject anything past a single sentence so it falls back to the template. Uses the
-        // locale sentence tokenizer, which keeps abbreviations (e.g. "vs.") intact.
-        guard sentenceCount(trimmed) <= 1 else { return .multiSentence }
+        guard wordCount <= 45 else { return .tooManyWords }
+        // Up to two short sentences is a valid step ("Open the form. Gather the first
+        // document it asks for."); three or more reads as a plan or a ramble, so reject it
+        // and let the repair/fallback path handle it. Uses the locale sentence tokenizer,
+        // which keeps abbreviations (e.g. "vs.") intact.
+        guard sentenceCount(trimmed) <= 2 else { return .multiSentence }
         // Anti-copy guard: small on-device models sometimes echo an illustrative phrase from
         // the prompt verbatim instead of writing something for the user's actual situation
         // (e.g. a debugging example surfacing for a coffee-newsletter input). Reject only a
@@ -515,14 +597,12 @@ actor AIService {
         return Double(shorterWordCount) / Double(longerWordCount) >= 0.8
     }
 
-    /// Illustrative/placeholder phrases that must never reach the user. These include the
-    /// example shapes referenced by the Stage-3 prompt and canned outputs the model tends to
-    /// regurgitate. Matching is done on a normalized form (see `normalizedForComparison`), so
-    /// punctuation/casing differences in the model's echo are still caught.
+    /// Illustrative/placeholder phrases that must never reach the user: the one example in the
+    /// Stage-3 prompt, plus canned outputs the model has been seen to regurgitate. Matching is
+    /// done on a normalized form (see `normalizedForComparison`), so punctuation/casing
+    /// differences in the model's echo are still caught.
     private static let forbiddenStepPhrases: [String] = [
-        "Write down the three job titles you'd actually be glad to get, then stop.",
-        "Set a timer for two minutes and put away only the things on the garage floor.",
-        "Open the file where the error happens and read just the first function.",
+        "Open the permit application and gather the first document it asks for.",
         "Take a few deep breaths and remind yourself that one day at a time is enough.",
         "Make a plan to get back on track."
     ]

@@ -52,6 +52,20 @@ final class AppNavigation {
         startUnstickFresh()
     }
 
+    /// Clear the loader only after the push beneath it has settled. Destinations
+    /// reached via `pushBehindLoader` call this from `.onAppear` instead of clearing
+    /// `loadingMessage` directly: `.onAppear` fires when a push *starts*, and even a
+    /// nominally non-animated push can still run a system transition — fading the
+    /// loader during it shows both screens at once. The delay outlasts the system
+    /// push (~0.35s) so the loader always reveals a stationary screen. Deliberately
+    /// not tied to the view's lifetime — a quick disappear must not strand the loader.
+    func dismissLoaderAfterPushSettles() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            loadingMessage = nil
+        }
+    }
+
     /// Push a destination with the system push transition **disabled**, for the
     /// case where a full-screen loader is already covering the screen. With the
     /// animation off, the destination mounts instantly behind the loader; the

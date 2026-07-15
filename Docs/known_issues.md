@@ -1,7 +1,13 @@
 # Known Issues
 
 Status: Open tracking doc
-Last updated: 2026-07-13
+Last updated: 2026-07-15
+
+> Simulator-testing note: after long UI-automation sessions on one booted simulator (repeated
+> ⌘⇧K keyboard toggles, HID typing), the sim's text-input/responder system can degrade — taps
+> stop granting editor focus app-wide even after app relaunch. Before diagnosing focus bugs in
+> app code, shut down and re-boot the simulator; the 2026-07-15 "refocus wedge recurrence" was
+> exactly this and reproduced cleanly as *working* after a fresh boot.
 
 > Purpose: a running log of observed bugs/quirks that aren't yet fixed, so they don't get
 > re-discovered from scratch each session. Not a spec — once an issue is fixed, move its entry
@@ -67,11 +73,85 @@ there because `SensitiveContentAnalysisML` isn't provisioned (see
 tested, but the actual repair-retry behavior against live model output needs a real run on an
 Apple-Intelligence-eligible device before this can be marked fully resolved.
 
-### 4. Keyboard obscures the text field on some iPhones
-**Reported:** 2026-07-13
+**Follow-up (2026-07-15): Stage 3 redesigned around "first real move," constraints loosened.**
+On-device testing showed the repair-retry fix wasn't enough: even successful generations were
+meta-work about the tasks ("write down the top three tasks… categorize them") rather than a
+first move *on* a task, and the fallback template still surfaced. Root cause was the prompt
+itself — ~40 lines of rules/NEVER-lists (which small on-device models follow poorly, and which
+that output visibly violated) plus an "intentionally incomplete, 2-minute, one-sentence" framing
+that steered generation away from the actual task. Changes (see `AI_PROMPT_GUIDELINES.md`, Core
+Principle revision note):
+1. Prompt rewritten to ~1/3 the length around one target shape: the first real, concrete move on
+   the user's actual task ("Open the permit application and gather the first document it asks
+   for"), with mode guidance rewritten to point at the task rather than at reflection.
+2. Validation loosened to match: up to two sentences (was one), ≤45-word slack against a ≤30-word
+   ask (was 35/25), 280 chars (was 240). Forbidden-phrase list trimmed to the one remaining
+   prompt example plus two known canned outputs; the old prompt's deleted examples were removed.
+3. `ActivationStep` `@Guide` shortened accordingly (it costs context tokens on every call).
+Repair-retry, gate diagnostics, and deterministic fallbacks are unchanged. Same simulator
+verification limits as above — needs an on-device run to confirm step quality.
 
-Not yet reproduced on a specific device — root cause is a hypothesis based on reading the two
-`TextEditor` usages in the app, not a confirmed diagnosis.
+### 4. Keyboard obscures the text field on some iPhones
+**Reported:** 2026-07-13 — **reproduced 2026-07-14 on an iPhone SE (3rd gen) / iOS 26.5 simulator;
+brain dump screen fixed and verified same day. Still open only for the `RecentStepsView` editor
+(unverified).**
+
+**Fix (2026-07-14, `BrainDumpView.swift`):**
+1. The hero wordmark, subtitle, and deferred-return card collapse while the editor is focused
+   (title stays as the anchor), animated on `isEditorFocused`. On the SE this takes the editor
+   from a ~10pt sliver to ~150pt with the keyboard up; on tall phones it just adds writing room.
+2. `submit()` resigns editor focus before the loader goes up, so an error always returns to the
+   full keyboard-free layout with the dump, the error line, and the button all visible.
+3. Transition polish (2026-07-15, follow-up on user feedback): the collapse is keyed on
+   `isCompact = isEditorFocused || isLoading`, so the chrome stays collapsed through the
+   loading phase — submit resigns focus and raises the loader in the same transaction, and the
+   hero no longer re-expands underneath the dim. Loader/dim fades slowed 0.14s → 0.35s
+   (matched across `BrainDumpView`, `RootTabView`, `ReflectionChoiceView`), layout
+   collapse/expand 0.25s.
+   Second round (same day): the outgoing and incoming screens were both visible during the
+   handoff. Two causes: `FullScreenPauseLoaderOverlay` was `.thinMaterial` (translucent — the
+   screens cross-faded through it; now opaque `Color(.systemBackground)`), and destinations
+   cleared `loadingMessage` in `.onAppear`, which fires when a push *starts* — if the system
+   animates the push despite `pushBehindLoader`'s disabled transaction, the loader faded during
+   the slide. Destinations now call `nav.dismissLoaderAfterPushSettles()` (clears after 450ms),
+   so the loader always reveals a stationary screen; `NextStepView.revealStep` flourish retimed
+   0.2s → 0.95s to fire after the reveal, not behind the curtain. Verified frame-by-frame from
+   a simulator recording: reveal shows only the settled destination.
+   Testing aid: `UI_MOCK_AI=1` (DEBUG env hook in `AIService`, alongside
+   `UI_FORCE_EXTRACT_ERROR`) returns canned Stage 1–3 results after a 1.5s delay so the full
+   dump → reflection → next-step flow runs on simulators without Apple Intelligence.
+4. Removed `.disabled(isLoading)` from the screen content (the full-screen loader overlay already
+   blocks touches, and `submit()` has a reentry guard; the button keeps its own `disabled`).
+   This was load-bearing: disabling the focused `TextEditor` in the same transaction as the
+   programmatic focus resign desynced `@FocusState` from the first responder and permanently
+   wedged the editor — after an error it could never be refocused (taps landed, no keyboard, no
+   cursor). Do not reintroduce a whole-screen `.disabled` here.
+
+Verified on the SE simulator: typing state, submit → forced error → return, and refocus-to-retry
+all render correctly; iPhone 17 spot-checked for regressions.
+
+**Confirmed on the brain dump screen.** With the software keyboard up on the SE (667pt tall), the
+fixed chrome (120pt wordmark + title + subtitle above, pinned button + keyboard toolbar below)
+consumes nearly the whole screen and the `TextEditor` collapses to a ~10pt sliver — the user's
+typed text is completely invisible. This happens **while typing**, before any error.
+
+The reported "after getting output error, input screen is covered" variant reproduces the same
+way and is slightly worse: submit does not resign editor focus, so the keyboard stays up through
+the loader; when the error returns, the red error line joins the bottom `safeAreaInset` and
+squeezes the collapsed editor further. The user lands on an error telling them to "try again"
+while unable to see what they wrote. Tapping the keyboard-toolbar **Done** fully restores the
+layout — the bug is strictly the keyboard-up state on short screens.
+
+Repro (simulator): create an SE 3rd-gen sim on an iOS 26 runtime (`xcrun simctl create "SE test"
+"iPhone SE (3rd generation)" com.apple.CoreSimulator.SimRuntime.iOS-26-5`), launch with
+`SIMCTL_CHILD_UI_BYPASS_AI_GATE=1 SIMCTL_CHILD_UI_FORCE_EXTRACT_ERROR=1` (the second is a
+DEBUG-only hook added 2026-07-14 in `AIService.extract` that throws `extractionFailed` after a
+1.5s delay, mirroring `UI_BYPASS_AI_GATE`), focus the editor with the software keyboard visible,
+type ≥4 words, tap "Find my next step."
+
+The `RecentStepsView` `addedContext` editor variant is still unverified.
+
+Original analysis (hypothesis now confirmed for the brain dump screen):
 
 - **Brain dump screen** (`BrainDumpView.swift:34-79`) uses a deliberately fixed, non-scrolling
   layout — no outer `ScrollView` — so "the page never shifts and the action button stays pinned
@@ -88,12 +168,45 @@ Not yet reproduced on a specific device — root cause is a hypothesis based on 
   default scroll-into-view behavior may not bring the active line all the way above the keyboard,
   especially right after the editor gains focus.
 
-**Next step:** reproduce on an iPhone SE (3rd gen) or mini-class simulator with the keyboard up on
-both screens to confirm which one (or both) is actually affected, then decide the fix — likely
-letting the brain dump layout become scrollable (or shrinking the header) below a height
-threshold, and/or explicitly scrolling the focused editor into view on the detail screen.
+**Next step:** check the `RecentStepsView` `addedContext` editor on the same SE simulator (needs
+an active recent step, so it requires either a device with Apple Intelligence or seeding the
+store); apply the same treatment if it's affected.
 
-**Note:** User reports that after getting output error, input screen is covered. Try reproducing that way.
+### 5. Stage 1 invents blockers; Stage 2 options parrot the prompt
+**Reported:** 2026-07-15 (real device session) — **fix implemented same day, on-device
+verification pending.**
+
+Observed session: input said "just released it… the name is wrong… the product isn't good…
+I don't know what to do." Stage 1 fabricated a practical blocker ("there are bugs in the app")
+and dropped the one concrete fact (the wrong name); Stage 2 returned three near-verbatim copies
+of its own prompt text ("I keep trying fixes but nothing works" — the prompt's example — plus
+first-person recastings of the `narrow`/`clarify` mode descriptions). The cascade fed Stage 3 a
+false premise ("check the error messages") even though the Stage 3 generation itself was
+well-shaped.
+
+Root causes: (a) Stage 1's blocker instruction listed three types, which the small model treats
+as slots to fill — it padded with an invented "bugs" blocker; (b) Stage 2 never saw the user's
+own words (only the already-abstracted extraction) and had a copyable example + mode
+descriptions sitting in its prompt with no echo defense.
+
+**Implemented (`AIService.swift`):**
+1. Stage 1 blockers rule rewritten: fewer is better, one is fine, never invent a blocker to fill
+   the list or cover a missing type.
+2. Stage 2 prompt rewritten to include the brain dump verbatim and require every label to
+   mention something from the user's own words; the example is domain-shifted (grant
+   application) and explicitly marked do-not-reuse.
+3. New `isGenericOptionLabel` guard: coverage-based echo detection (≥80% of a label's words
+   appearing in a known prompt phrase) against the example and first-person recastings of the
+   mode descriptions. Echoed labels are treated like missing modes — they trigger the existing
+   reroll — but are kept as a last resort in the best-effort path rather than dropping a row.
+   Covered by `GenericOptionLabelTests` using the observed session's three labels as fixtures.
+4. `clarify()` now takes `brainDump:`; call sites updated (`BrainDumpView`, `RecentStepsView`,
+   `ReflectionChoiceModel` ×2).
+
+**Still open:** same simulator limitation as #2 — needs an on-device rerun of the same brain
+dump to confirm grounded options and no invented blockers. Deeper product question flagged, not
+addressed: all three StuckModes assume mid-work stuckness; post-release disappointment ("shipped
+it, unhappy with it") doesn't map cleanly to any mode.
 
 ## Resolved / not a bug
 

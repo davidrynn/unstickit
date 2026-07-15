@@ -43,7 +43,11 @@ struct RootTabView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.14), value: nav.loadingMessage)
+        // Unhurried fade: the loader is a deliberate pause (see
+        // FullScreenPauseLoaderOverlay), so it eases in/out slowly enough that the
+        // screens beneath never appear to snap. Matches the 0.35s dim on the screens
+        // that drive `loadingMessage`.
+        .animation(.easeInOut(duration: 0.35), value: nav.loadingMessage)
         .environment(nav)
         .environmentObject(stepStore)
     }

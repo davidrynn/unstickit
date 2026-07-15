@@ -265,7 +265,10 @@ private struct RecentStepDetailView: View {
                 }
                 // If clarification fails, the combined screen still shows the summary and
                 // offers a retry (T7) — don't dead-end here.
-                let clarification = try? await AIService.shared.clarify(extraction: extraction)
+                let clarification = try? await AIService.shared.clarify(
+                    extraction: extraction,
+                    brainDump: context
+                )
                 // Non-animated push so the loader hides the navigation entirely
                 // (cleared by ReflectionChoiceView.onAppear).
                 nav.pushBehindLoader(
