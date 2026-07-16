@@ -13,6 +13,10 @@ struct AboutView: View {
     // and the policy wording must match this sheet + the "Data Not Collected" App Store label.
     private let supportURL = URL(string: "https://davidrynn.com/clear-next-step/support")
     private let privacyURL = URL(string: "https://davidrynn.com/clear-next-step/privacy")
+    /// Companion custom GPT (known_issues.md #6) — same flow on a full-size LLM. Framed as
+    /// a companion experiment, not a replacement, and flagged as leaving the device since
+    /// the app's whole privacy thesis is on-device.
+    private let webGPTURL = URL(string: "https://chatgpt.com/g/g-69c70cfdb3d48191a63d67edb52b3cee-clear-next-step")
 
     private var versionText: String {
         let info = Bundle.main.infoDictionary
@@ -51,6 +55,16 @@ struct AboutView: View {
                             }
                         }
                         .font(.body)
+                    }
+
+                    if let webGPTURL {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Link("Want to try this on a full LLM on the web?", destination: webGPTURL)
+                                .font(.subheadline)
+                            Text("The companion GPT runs on OpenAI's servers, under a separate privacy policy — unlike the app, your words leave your device.")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .padding(24)

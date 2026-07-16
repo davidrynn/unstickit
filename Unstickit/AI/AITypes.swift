@@ -192,3 +192,16 @@ struct NextStepContext: Hashable {
     var mode: StuckMode
     var optionLabel: String
 }
+
+/// Constrained "Not quite" retry (did_this_help_spec.md): after a rejection, the model no
+/// longer writes the step — it only fills these two slots, and the step is assembled from
+/// a deterministic frame. `task` is validated in code against the user's own words, so a
+/// hallucinated task is a caught failure, not a shipped one.
+@Generable
+struct StepIngredients {
+    @Guide(description: "The ONE task from the user's own words to start with — 2 to 8 words, as close to verbatim as possible")
+    var task: String
+
+    @Guide(description: "The smallest first action on that task — 2 to 8 words starting with a verb, doable in two minutes (e.g. 'write down the first exercise' or 'draft one sentence about who it is for')")
+    var firstAction: String
+}

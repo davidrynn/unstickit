@@ -590,6 +590,227 @@ struct StepValidationTests {
         )
         #expect(failure == nil)
     }
+
+    // Retry-only gate (did_this_help_spec.md hardening): fixtures are a real session where
+    // the retry returned the rejected step with one verb swapped ("review" → "pick").
+
+    @Test func rejectsANearRepeatOfTheRejectedStepOnRetry() {
+        let rejected = "Open the ballet lesson planning document and review the first " +
+            "section for the summer intensive details."
+        let failure = AIService.validationFailure(
+            for: "Open the ballet lesson planning document and pick the first section " +
+                "for the summer intensive details.",
+            rejecting: rejected
+        )
+        #expect(failure == .repeatedRejected)
+    }
+
+    @Test func acceptsAGenuinelyDifferentStepOnRetry() {
+        let rejected = "Open the ballet lesson planning document and review the first " +
+            "section for the summer intensive details."
+        let failure = AIService.validationFailure(
+            for: "Write the first exercise of the summer intensive lesson in a blank note.",
+            rejecting: rejected
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func firstPassGenerationIgnoresTheRejectedGate() {
+        // Without a rejected step there is nothing to repeat — identical text is fine.
+        let step = "Open the permit form and gather the first document."
+        #expect(AIService.validationFailure(for: step, rejecting: nil) == nil)
+    }
+
+    // Invented-artifact gate (known_issues.md #2 thread): fixtures are real device output.
+
+    private let overwhelmDump = "I have to many tasks and I can't complete any of them: " +
+        "Promote my buisness. Plan a ballet lesson for the summer intensive. " +
+        "Apply for permit papers for my son's modeling"
+
+    @Test func rejectsAStepNamingAnArtifactTheUserNeverMentioned() {
+        let failure = AIService.validationFailure(
+            for: "Open the business promotion spreadsheet on your computer and start by " +
+                "listing the tasks you need to complete.",
+            groundedIn: overwhelmDump
+        )
+        #expect(failure == .inventedArtifact)
+    }
+
+    @Test func rejectsTheBalletPlanningDocumentHallucination() {
+        let failure = AIService.validationFailure(
+            for: "Open the ballet lesson planning document and review the first section.",
+            groundedIn: overwhelmDump
+        )
+        #expect(failure == .inventedArtifact)
+    }
+
+    @Test func allowsAnArtifactTheUserActuallyMentioned() {
+        let dump = "I need to reply to an email from a friend I let down."
+        let failure = AIService.validationFailure(
+            for: "Open the email and read just the first line.",
+            groundedIn: dump
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func allowsCreatingAFreshArtifact() {
+        let failure = AIService.validationFailure(
+            for: "Start a new spreadsheet with a single line about your business.",
+            groundedIn: overwhelmDump
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func allowsSingularWhenTheDumpUsedPlural() {
+        let dump = "I need to gather my tax documents but keep putting it off."
+        let failure = AIService.validationFailure(
+            for: "Find the first document and put it on your desk.",
+            groundedIn: dump
+        )
+        #expect(failure == nil)
+    }
+
+    @Test func artifactGateIsOffWithoutAGroundingSource() {
+        let step = "Open the business promotion spreadsheet and list this week's tasks."
+        #expect(AIService.validationFailure(for: step) == nil)
+    }
+}
+
+// MARK: - Stage 1 contract enforcement (observed: stitched summary, duplicate blockers)
+
+struct ExtractionHygieneTests {
+    @Test func trimsBlockerWhitespaceAndDropsEmpties() {
+        let cleaned = AIService.cleanedBlockers([
+            Blocker(description: "You get overwhelmed.\n", type: .emotional),
+            Blocker(description: "   ", type: .practical)
+        ])
+        #expect(cleaned.map(\.description) == ["You get overwhelmed."])
+    }
+
+    @Test func dropsANearDuplicateBlocker() {
+        let cleaned = AIService.cleanedBlockers([
+            Blocker(description: "You have too many tasks to manage.", type: .practical),
+            Blocker(description: "You have far too many tasks to manage.", type: .practical),
+            Blocker(description: "You don't know what to do next.", type: .informational)
+        ])
+        #expect(cleaned.count == 2)
+        #expect(cleaned.first?.description == "You have too many tasks to manage.")
+    }
+
+    @Test func keepsRelatedButDistinctBlockers() {
+        // The two real emotional blockers from the overwhelm session share a theme but
+        // only ~36% of their words — both stay; only restatements are dropped.
+        let cleaned = AIService.cleanedBlockers([
+            Blocker(description: "You get overwhelmed when you start to do other random things.", type: .emotional),
+            Blocker(description: "You can't complete any of them because you get overwhelmed.", type: .emotional)
+        ])
+        #expect(cleaned.count == 2)
+    }
+
+    @Test func stitchedTwoSentenceSummaryIsCutToItsFirstSentence() {
+        // Real device output: goalSummary + frictionSummary concatenated verbatim.
+        let stitched = "You want to manage your multiple tasks effectively to complete " +
+            "your business promotion, ballet lesson planning, and modeling permit " +
+            "applications. Feeling overwhelmed and unable to focus on any one task at a " +
+            "time makes it hard to manage all your responsibilities."
+        let enforced = AIService.enforcedDisplaySummary(stitched)
+        #expect(enforced == "You want to manage your multiple tasks effectively to complete " +
+            "your business promotion, ballet lesson planning, and modeling permit applications.")
+    }
+
+    @Test func singleSentenceSummaryIsUntouched() {
+        let summary = "You want to fix your app, but you're unsure how to proceed."
+        #expect(AIService.enforcedDisplaySummary(summary) == summary)
+    }
+
+    @Test func commaSplicedRunOnSummaryFallsBackToTheGoal() {
+        // Real device output: the model dodged the one-sentence rule by comma-splicing
+        // goal + friction into a single ~50-word sentence.
+        let runOn = "You want to focus on completing tasks like promoting your business, " +
+            "planning a ballet lesson, and applying for permit papers for your son's " +
+            "modeling, but you're feeling overwhelmed and unsure about how to prioritize " +
+            "and manage all these tasks, which is making it hard to focus and complete them."
+        let goal = "You want to focus on completing tasks like promoting your business, " +
+            "planning a ballet lesson, and applying for permit papers for your son's modeling."
+        #expect(AIService.enforcedDisplaySummary(runOn, goalFallback: goal) == goal)
+    }
+
+    @Test func runOnSummaryWithoutAGoalFallbackIsKept() {
+        let runOn = Array(repeating: "word", count: 40).joined(separator: " ") + "."
+        #expect(AIService.enforcedDisplaySummary(runOn) == runOn)
+    }
+}
+
+// MARK: - Constrained "Not quite" retry: slot-fill validation (did_this_help_spec.md)
+
+struct StepIngredientsTests {
+    // The real three-task overwhelm dump whose retries hallucinated a "planning document"
+    // and phone-number advice.
+    private let dump = """
+    I have to many tasks and I can't complete any of them because I get overwhelmed than \
+    I start to do other random things: Promote my buisness. Plan a ballet lesson for the \
+    summer intensive. Apply for permit papers for my son's modeling
+    """
+
+    @Test func acceptsATaskQuotedFromTheDump() {
+        #expect(AIService.taskIsGrounded("plan a ballet lesson", in: dump))
+        #expect(AIService.taskIsGrounded("apply for permit papers", in: dump))
+    }
+
+    @Test func acceptsATaskWithMinorPronounDrift() {
+        // "your son's modeling" vs the dump's "my son's modeling" — 4 of 5 words grounded.
+        #expect(AIService.taskIsGrounded("apply for permit papers for the son's modeling", in: dump))
+    }
+
+    @Test func rejectsAHallucinatedTask() {
+        #expect(!AIService.taskIsGrounded("open the planning document", in: dump))
+        #expect(!AIService.taskIsGrounded("review the marketing budget", in: dump))
+    }
+
+    @Test func rejectsASingleWordOrOverlongTask() {
+        #expect(!AIService.taskIsGrounded("ballet", in: dump))
+        let overlong = Array(repeating: "tasks", count: 11).joined(separator: " ")
+        #expect(!AIService.taskIsGrounded(overlong, in: dump))
+    }
+
+    @Test func groundingAcceptsTasksIntroducedByTheCorrection() {
+        // Feedback is part of the user's words: it may introduce the real task.
+        let source = dump + " I have to create the lesson plan from scratch"
+        #expect(AIService.taskIsGrounded("create the lesson plan", in: source))
+    }
+
+    @Test func firstActionMustBeSlotSized() {
+        #expect(AIService.isValidFirstAction("write down the first exercise"))
+        #expect(!AIService.isValidFirstAction("exercise"))
+        #expect(!AIService.isValidFirstAction("a very long first action that rambles on well past the slot size"))
+        #expect(!AIService.isValidFirstAction("two\nlines"))
+    }
+
+    @Test func framesAssemblePerMode() {
+        // No timers, no "then stop" (real-device feedback), and the model's fragment is
+        // sentence-cased regardless of how it came back.
+        let clarify = AIService.assembleStep(
+            mode: .clarify, task: "plan a ballet lesson", firstAction: "write down the first exercise"
+        )
+        #expect(clarify == "Pick just one thing: \u{201C}plan a ballet lesson\u{201D}. Write down the first exercise.")
+
+        let narrow = AIService.assembleStep(
+            mode: .narrow, task: "promote my business", firstAction: "Draft one sentence about who it helps."
+        )
+        #expect(narrow == "Start with \u{201C}promote my business\u{201D}. Draft one sentence about who it helps.")
+
+        let reproduce = AIService.assembleStep(
+            mode: .reproduce, task: "apply for permit papers", firstAction: "unused here"
+        )
+        #expect(reproduce == "Go back to \u{201C}apply for permit papers\u{201D}. Write down the last thing you tried and what actually happened.")
+    }
+
+    @Test func assembledFramesPassStepValidation() {
+        let step = AIService.assembleStep(
+            mode: .clarify, task: "plan a ballet lesson", firstAction: "write down the first exercise"
+        )
+        #expect(AIService.validationFailure(for: step) == nil)
+    }
 }
 
 // MARK: - Stage 2 option-label echo guard (known_issues.md #5: generic prompt-echo options)

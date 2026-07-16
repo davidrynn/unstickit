@@ -46,6 +46,13 @@ enum StepValidationFailure: String {
     case tooManyWords
     case multiSentence
     case forbiddenPhrase
+    /// Retry-only: the candidate is a near-repeat of the step the user just rejected
+    /// (observed: the model returning the rejected sentence with one verb swapped).
+    case repeatedRejected
+    /// The step names a task artifact (document, spreadsheet, email…) the user never
+    /// mentioned — the model assuming a typical setup instead of using their words
+    /// (observed: "the planning document", "the business promotion spreadsheet").
+    case inventedArtifact
 }
 
 /// On-device model availability, mapped to a UI-facing enum so views don't import FoundationModels.
@@ -163,12 +170,15 @@ actor AIService {
                 generating: ExtractionResult.self
             )
             var result = response.content
-            // Defensive cap: the prompt asks for 1–3 blockers, but the model
-            // occasionally returns 4+ on multi-goal inputs. Clamp so the UI and
-            // Stage 2 never see more than the spec allows.
+            // Contract enforcement in code — the model keeps breaking these in prose:
+            // stray newlines in blocker text (rendered as a blank row), near-duplicate
+            // blockers, more than 3 blockers, and a display summary stitched from two of
+            // its own other fields (two sentences, over the 28-word cap).
+            result.blockers = Self.cleanedBlockers(result.blockers)
             if result.blockers.count > 3 {
                 result.blockers = Array(result.blockers.prefix(3))
             }
+            result.summary = Self.enforcedDisplaySummary(result.summary, goalFallback: result.goalSummary)
             #if DEBUG
             print("""
 
@@ -207,6 +217,53 @@ actor AIService {
             }
             throw AIServiceError.extractionFailed
         }
+    }
+
+    /// Trim stray whitespace/newlines from blocker text (observed rendering as a blank
+    /// row), drop empties, and drop near-duplicates (≥80% word overlap with an earlier
+    /// blocker — catches restatements, not merely related blockers).
+    static func cleanedBlockers(_ blockers: [Blocker]) -> [Blocker] {
+        var kept: [Blocker] = []
+        for var blocker in blockers {
+            blocker.description = blocker.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !blocker.description.isEmpty else { continue }
+            let isDuplicate = kept.contains {
+                wordCoverage(of: blocker.description, in: $0.description) >= 0.8
+            }
+            if !isDuplicate { kept.append(blocker) }
+        }
+        return kept
+    }
+
+    /// The display summary's contract is one sentence, ≤28 words; the model dodges it two
+    /// ways — stitching goalSummary + frictionSummary as two sentences, or comma-splicing
+    /// them into one ~50-word sentence. Keep the first sentence; if that still blows the
+    /// word budget, prefer the goal summary when it's shorter.
+    static func enforcedDisplaySummary(_ summary: String, goalFallback: String? = nil) -> String {
+        let display = firstSentence(of: summary)
+        let displayWords = display.split(whereSeparator: \.isWhitespace).count
+        guard displayWords > 35,
+              let goal = goalFallback.map({ firstSentence(of: $0) }),
+              !goal.isEmpty,
+              goal.split(whereSeparator: \.isWhitespace).count < displayWords else {
+            return display
+        }
+        return goal
+    }
+
+    private static func firstSentence(of text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sentenceCount(trimmed) > 1 else { return trimmed }
+        var first: String?
+        trimmed.enumerateSubstrings(
+            in: trimmed.startIndex..<trimmed.endIndex, options: .bySentences
+        ) { substring, _, _, stop in
+            if let substring, !substring.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                first = substring.trimmingCharacters(in: .whitespacesAndNewlines)
+                stop = true
+            }
+        }
+        return first ?? trimmed
     }
 
     // MARK: - Stage 2: Clarification Options
@@ -344,14 +401,19 @@ actor AIService {
     /// at least 80% of its words appear in one of the known phrases. A label that adds the
     /// user's own nouns dilutes coverage below the threshold and passes.
     static func isGenericOptionLabel(_ label: String) -> Bool {
-        let tokens = normalizedForComparison(label).split(separator: " ")
-        guard !tokens.isEmpty else { return true }
-        for phrase in genericOptionPhrases {
-            let phraseTokens = Set(normalizedForComparison(phrase).split(separator: " "))
-            let covered = tokens.filter { phraseTokens.contains($0) }.count
-            if Double(covered) / Double(tokens.count) >= 0.8 { return true }
-        }
-        return false
+        genericOptionPhrases.contains { wordCoverage(of: label, in: $0) >= 0.8 }
+    }
+
+    /// Fraction of `candidate`'s normalized words that also appear in `reference`. Catches
+    /// near-repeats that containment-based echo checks miss (a single swapped word breaks
+    /// substring containment but barely moves coverage). Empty candidates count as fully
+    /// covered so callers treat them as echoes rather than novel content.
+    private static func wordCoverage(of candidate: String, in reference: String) -> Double {
+        let tokens = normalizedForComparison(candidate).split(separator: " ")
+        guard !tokens.isEmpty else { return 1 }
+        let referenceTokens = Set(normalizedForComparison(reference).split(separator: " "))
+        let covered = tokens.filter { referenceTokens.contains($0) }.count
+        return Double(covered) / Double(tokens.count)
     }
 
     /// The Stage-2 prompt text the model is known to parrot: the illustrative example (current
@@ -387,19 +449,23 @@ actor AIService {
             throw AIServiceError.modelUnavailable
         }
 
-        // Generate the step from the user's own words + the option they chose. The small
-        // on-device model is unreliable, so this is best-effort: if it throws, refuses, or
-        // returns something that doesn't pass validation, fall back to a deterministic,
-        // domain-neutral template for the mode. The worst case equals the old behavior.
-        let generated = await generateActivationStep(
+        // Three-rung ladder, most open first (did_this_help_spec.md): free-form generation,
+        // then the constrained slot-fill frame (grounded in the user's task — a validation
+        // failure on the open pass lands here, not on the canned template), then the
+        // deterministic template as the true last resort.
+        var source = "generated"
+        var step = await generateActivationStep(
             mode: selectedMode,
             brainDump: brainDump,
             summary: extraction.summary,
             optionLabel: selectedOptionLabel
         )
-        let nextStep = generated ?? fallbackStep(for: selectedMode)
+        if step == nil {
+            step = await constrainedStep(mode: selectedMode, brainDump: brainDump)
+            source = step == nil ? "fallback template" : "assembled frame"
+        }
         let result = NextStepResult(
-            nextStep: nextStep,
+            nextStep: step ?? fallbackStep(for: selectedMode),
             fallbackStep: smallerFallbackStep(for: selectedMode)
         )
 
@@ -409,7 +475,7 @@ actor AIService {
         ┌─ STAGE 3: NEXT STEP ───────────────────────────────
         │ SELECTED MODE: \(selectedMode.rawValue)
         │ SELECTED OPTION: \(selectedOptionLabel)
-        │ SOURCE: \(generated == nil ? "fallback template" : "generated")
+        │ SOURCE: \(source)
         │
         │ RESULT:
         │   nextStep: \(result.nextStep)
@@ -422,10 +488,13 @@ actor AIService {
     }
 
     /// Regenerate the step after the user answered "Not quite" (did_this_help_spec.md).
-    /// The rejected step — and the user's optional correction, which overrides anything
-    /// previously inferred — are folded into the prompt. Best-effort like
-    /// `generateNextStep`: any failure falls back to the deterministic template, so the
-    /// user always gets a fresh step rather than an error.
+    ///
+    /// Deliberately NOT free-form: the first pass gets one shot at an open, generated step;
+    /// once the user has rejected it, the retry must be incapable of nonsense. The model
+    /// only picks two slots (`StepIngredients`) — the task, validated in code against the
+    /// user's own words, and its smallest first piece — and the step is assembled from a
+    /// deterministic frame. Any failure falls back to the template, so the user always gets
+    /// a fresh step rather than an error.
     func regenerateNextStep(
         context: NextStepContext,
         brainDump: String,
@@ -441,24 +510,23 @@ actor AIService {
             )
         }
         #endif
-        let generated = await generateActivationStep(
+        let assembled = await constrainedStep(
             mode: context.mode,
             brainDump: brainDump,
-            summary: context.summary,
-            optionLabel: context.optionLabel,
-            rejection: (step: rejectedStep, feedback: feedback)
+            rejectedStep: rejectedStep,
+            feedback: feedback
         )
         let result = NextStepResult(
-            nextStep: generated ?? fallbackStep(for: context.mode),
+            nextStep: assembled ?? fallbackStep(for: context.mode),
             fallbackStep: smallerFallbackStep(for: context.mode)
         )
         #if DEBUG
         print("""
 
-        ┌─ STAGE 3: NEXT STEP (RETRY) ───────────────────────
+        ┌─ STAGE 3: NEXT STEP (RETRY, slot-fill) ────────────
         │ REJECTED: \(rejectedStep)
         │ FEEDBACK: \(feedback ?? "none")
-        │ SOURCE: \(generated == nil ? "fallback template" : "generated")
+        │ SOURCE: \(assembled == nil ? "fallback template" : "assembled frame")
         │
         │ RESULT:
         │   nextStep: \(result.nextStep)
@@ -468,53 +536,167 @@ actor AIService {
         return result
     }
 
-    /// Best-effort generation of the activation step. Returns `nil` (so the caller uses a
-    /// template) on any failure, refusal, or output that still fails validation after one
-    /// targeted repair attempt. `rejection` carries a previously rejected step (plus the
-    /// user's optional correction) on a "Not quite" retry.
+    /// One slot-fill attempt plus one targeted re-pick, assembled into a mode frame.
+    /// Returns `nil` if the model can't produce grounded slots — the caller templates.
+    /// Used by "Not quite" retries (with the rejected step + correction) and as the
+    /// middle rung when first-pass generation fails validation (no rejection context).
+    private func constrainedStep(
+        mode: StuckMode,
+        brainDump: String,
+        rejectedStep: String? = nil,
+        feedback: String? = nil
+    ) async -> String? {
+        let session = LanguageModelSession()
+        var rejectionLines = ""
+        if let rejectedStep {
+            rejectionLines = "\n\nThey rejected this suggestion: \"\(rejectedStep)\""
+            if let feedback {
+                rejectionLines += "\nTheir correction (this overrides anything else you assume): \(feedback)"
+            }
+        }
+        let prompt = """
+        Someone is stuck. In their own words:
+
+        \(brainDump)\(rejectionLines)
+
+        Pick the ONE task from their own words that is easiest to start right now, and name \
+        its smallest first action — 2 to 8 words starting with a verb, doable in two \
+        minutes. Use only what they actually wrote: if their correction says something does \
+        not exist or missed the point, do not build on it again.
+        """
+        // The user's correction counts as their words too — it may introduce the real task.
+        let groundingSource = brainDump + " " + (feedback ?? "")
+
+        if let step = await requestStepIngredients(
+            session: session, prompt: prompt, mode: mode,
+            groundingSource: groundingSource, rejectedStep: rejectedStep
+        ) {
+            return step
+        }
+        // One targeted re-pick: name the failure (ungrounded task) rather than rerolling blind.
+        return await requestStepIngredients(
+            session: session,
+            prompt: "That task was not taken from their own words, or repeated the rejected " +
+                "suggestion. Pick again, copying the task phrase from what they actually wrote.",
+            mode: mode,
+            groundingSource: groundingSource,
+            rejectedStep: rejectedStep
+        )
+    }
+
+    /// Ask for slots, validate them in code, and assemble the frame. Returns `nil` when the
+    /// slots are ungrounded/malformed or the assembled step trips a validation gate.
+    private func requestStepIngredients(
+        session: LanguageModelSession,
+        prompt: String,
+        mode: StuckMode,
+        groundingSource: String,
+        rejectedStep: String?
+    ) async -> String? {
+        guard let response = try? await session.respond(
+            to: prompt,
+            generating: StepIngredients.self,
+            options: GenerationOptions(temperature: 0.5)
+        ) else { return nil }
+        let ingredients = response.content
+        guard Self.taskIsGrounded(ingredients.task, in: groundingSource),
+              Self.isValidFirstAction(ingredients.firstAction) else {
+            #if DEBUG
+            print("⚠️ STAGE 3 retry slots rejected. task: \(ingredients.task) | firstAction: \(ingredients.firstAction)")
+            #endif
+            return nil
+        }
+        let step = Self.assembleStep(mode: mode, task: ingredients.task, firstAction: ingredients.firstAction)
+        guard Self.validationFailure(
+            for: step, rejecting: rejectedStep, groundedIn: groundingSource
+        ) == nil else { return nil }
+        return step
+    }
+
+    /// A task slot is usable only if it substantially quotes the user (≥60% of its words
+    /// appear in their dump or correction). This is the production guard the free-form
+    /// path could never have: a hallucinated task ("the planning document") fails here
+    /// deterministically instead of reaching the screen.
+    static func taskIsGrounded(_ task: String, in source: String) -> Bool {
+        let words = normalizedForComparison(task).split(separator: " ")
+        guard (2...10).contains(words.count) else { return false }
+        return wordCoverage(of: task, in: source) >= 0.6
+    }
+
+    /// The first-action slot is allowed to be generative (it names a move on something
+    /// that may not exist yet), but must stay slot-sized: 2–8 words, single line.
+    static func isValidFirstAction(_ action: String) -> Bool {
+        let trimmed = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains("\n") else { return false }
+        let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+        return (2...8).contains(wordCount)
+    }
+
+    /// Deterministic frames, written once in the app's voice. Quoting the task sidesteps
+    /// grammatical mismatch with whatever phrase shape the model extracted; the first
+    /// action stands as its own sentence, which also normalizes its casing.
+    /// No timers, no "then stop" — real-device feedback read those as gimmicky and
+    /// patronizing ("Why a timer"), and a fixed frame can't answer that question.
+    static func assembleStep(mode: StuckMode, task: String, firstAction: String) -> String {
+        let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch mode {
+        case .reproduce:
+            return "Go back to \u{201C}\(task)\u{201D}. Write down the last thing you tried and what actually happened."
+        case .narrow:
+            return "Start with \u{201C}\(task)\u{201D}. \(sentenceCased(firstAction))"
+        case .clarify:
+            return "Pick just one thing: \u{201C}\(task)\u{201D}. \(sentenceCased(firstAction))"
+        }
+    }
+
+    /// Trim, capitalize the first letter, and end with a single period — the model returns
+    /// fragments in unpredictable casing ("Research ballet techniques…").
+    private static func sentenceCased(_ phrase: String) -> String {
+        var trimmed = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix(".") { trimmed = String(trimmed.dropLast()) }
+        guard let first = trimmed.first else { return trimmed }
+        return first.uppercased() + trimmed.dropFirst() + "."
+    }
+
+    /// Best-effort free-form generation of the activation step — first pass only; "Not
+    /// quite" retries use the constrained slot-fill path instead (did_this_help_spec.md).
+    /// Returns `nil` (so the caller uses a template) on any failure, refusal, or output
+    /// that still fails validation after one targeted repair attempt.
     private func generateActivationStep(
         mode: StuckMode,
         brainDump: String,
         summary: String,
-        optionLabel: String,
-        rejection: (step: String, feedback: String?)? = nil
+        optionLabel: String
     ) async -> String? {
         let session = LanguageModelSession()
-        var rejectionBlock = ""
-        if let rejection {
-            let feedbackLine = rejection.feedback.map {
-                " They corrected you: \"\($0)\" — their correction overrides anything you inferred before."
-            } ?? ""
-            rejectionBlock = """
-
-
-            You already suggested: "\(rejection.step)" — they said it did not help.\(feedbackLine) \
-            Write a completely different first action; do not repeat or rephrase that suggestion.
-            """
-        }
         let prompt = """
         Someone is stuck and needs one simple, concrete first action to get moving again.
 
         Their situation: \(brainDump)
         What you reflected back to them: \(summary)
-        How they say they're stuck: "\(optionLabel)"\(rejectionBlock)
+        How they say they're stuck: "\(optionLabel)"
 
         \(Self.modeGuidance(mode))
 
         Write ONE first action for them:
         - The first real move on their actual task — not advice, not a plan, not a reflection \
         on how they feel.
-        - Start with an action verb: Open, Write, Find, Pick, Set a timer, Look at.
+        - Start with an action verb: Open, Write, Find, Pick, Look at.
         - One or two short sentences, at most 30 words total.
         - Name the specific thing from THEIR situation — their form, their file, their phone \
-        call — not something generic.
-
-        Example of the right shape, for someone putting off a permit application: "Open the \
-        permit application and gather the first document it asks for." Write brand-new words \
-        for their situation — never reuse this example.
+        call — not something generic, and never a document, email, or tool they didn't \
+        mention. If the thing they need doesn't exist yet, the first action is to create \
+        its smallest first piece (a blank note, a single line), not to open it.
         """
+        // No illustrative example: two real sessions showed the model parroting it — once
+        // colliding with a user's actual permit task. The @Guide description and the rules
+        // above carry the shape; the validation gates catch drift.
 
-        switch await requestActivationStep(session: session, prompt: prompt) {
+        // Lower temperature than the default: trade creativity for instruction-following.
+        let attempt = await requestActivationStep(
+            session: session, prompt: prompt, temperature: 0.5, groundingSource: brainDump
+        )
+        switch attempt {
         case .validated(let step):
             return step
         case .error:
@@ -526,7 +708,9 @@ actor AIService {
             // reroll (`:185-199`).
             guard case .validated(let repaired) = await requestActivationStep(
                 session: session,
-                prompt: Self.repairPrompt(for: failure)
+                prompt: Self.repairPrompt(for: failure),
+                temperature: 0.5,
+                groundingSource: brainDump
             ) else {
                 return nil
             }
@@ -543,19 +727,21 @@ actor AIService {
 
     private func requestActivationStep(
         session: LanguageModelSession,
-        prompt: String
+        prompt: String,
+        temperature: Double,
+        rejectedStep: String? = nil,
+        groundingSource: String? = nil
     ) async -> StepAttemptResult {
         do {
-            // Lower temperature than the default: Stage 3 fights rambling, multi-sentence
-            // output with validation gates + a repair reroll, so trade creativity for
-            // instruction-following on the first attempt.
             let response = try await session.respond(
                 to: prompt,
                 generating: ActivationStep.self,
-                options: GenerationOptions(temperature: 0.5)
+                options: GenerationOptions(temperature: temperature)
             )
             let raw = response.content.step
-            if let failure = Self.validationFailure(for: raw) {
+            if let failure = Self.validationFailure(
+                for: raw, rejecting: rejectedStep, groundedIn: groundingSource
+            ) {
                 #if DEBUG
                 print("⚠️ STAGE 3 candidate failed validation (\(failure.rawValue)). Raw: \(raw)")
                 #endif
@@ -587,6 +773,14 @@ actor AIService {
         case .forbiddenPhrase:
             correction = "That was too close to a stock example rather than something " +
                 "specific to their actual situation."
+        case .repeatedRejected:
+            correction = "That was the same suggestion they already rejected, barely " +
+                "reworded. It must not come back in any form — pick a different thing " +
+                "from their situation to act on."
+        case .inventedArtifact:
+            correction = "That named a document, file, or tool they never mentioned — it " +
+                "does not exist. Use only things from their own words, or have them create " +
+                "the smallest first piece of the thing (a blank note, a single line)."
         }
         return """
         \(correction) Rewrite it: one concrete first action on their actual task, one or two \
@@ -613,7 +807,15 @@ actor AIService {
     /// looks like a plan (too long, multi-line, numbered list) is rejected so the caller
     /// falls back to a template. Returns the specific gate that failed (rather than just
     /// `nil`) so callers can log the real cause or target a repair at it.
-    static func validationFailure(for raw: String) -> StepValidationFailure? {
+    /// On a "Not quite" retry, `rejecting` carries the step the user rejected: a candidate
+    /// that mostly repeats it (≥80% word coverage — catches one-word swaps) is rejected too.
+    /// `groundedIn` carries the user's own words (dump + any correction): when present, a
+    /// step naming an artifact absent from them is rejected as `.inventedArtifact`.
+    static func validationFailure(
+        for raw: String,
+        rejecting rejectedStep: String? = nil,
+        groundedIn source: String? = nil
+    ) -> StepValidationFailure? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .empty }
         guard trimmed.count <= 280 else { return .tooLong }
@@ -641,8 +843,47 @@ actor AIService {
                 return .forbiddenPhrase
             }
         }
+        // Retry-only gate: the user already rejected this step — a near-repeat (observed:
+        // same sentence, "review" swapped for "pick") must not come back. Coverage-based,
+        // since a one-word swap defeats containment checks.
+        if let rejectedStep, wordCoverage(of: trimmed, in: rejectedStep) >= 0.8 {
+            return .repeatedRejected
+        }
+        // Invented-artifact gate: the model may only name a known task artifact if the
+        // user's own words (`source`) did first, or as an explicit fresh creation ("a new/
+        // blank spreadsheet"). Prompt rules alone did not stop this — the model quotes the
+        // instructions' surface rather than following them — so it's enforced here.
+        if let source, firstInventedArtifact(in: trimmed, source: source) != nil {
+            return .inventedArtifact
+        }
         return nil
     }
+
+    /// The first artifact noun in `step` that neither appears in `source` (singular or
+    /// plural) nor is introduced as a fresh creation ("new"/"blank"/"fresh" before it), or
+    /// `nil` if the step is clean.
+    static func firstInventedArtifact(in step: String, source: String) -> String? {
+        let sourceTokens = Set(normalizedForComparison(source).split(separator: " ").map(String.init))
+        let stepTokens = normalizedForComparison(step).split(separator: " ").map(String.init)
+        for (index, token) in stepTokens.enumerated() where artifactNouns.contains(token) {
+            let stem = token.hasSuffix("s") ? String(token.dropLast()) : token + "s"
+            if sourceTokens.contains(token) || sourceTokens.contains(stem) { continue }
+            let previous = index > 0 ? stepTokens[index - 1] : ""
+            if ["new", "blank", "fresh"].contains(previous) { continue }
+            return token
+        }
+        return nil
+    }
+
+    /// Task artifacts the model invents when it assumes a typical setup for a task type.
+    /// Deliberately excludes words that legitimately appear in creation-shaped steps or are
+    /// too central to block ("note", "paper", "timer", "application").
+    private static let artifactNouns: Set<String> = [
+        "document", "documents", "spreadsheet", "spreadsheets", "email", "emails", "inbox",
+        "form", "forms", "file", "files", "folder", "folders", "checklist", "checklists",
+        "template", "templates", "planner", "calendar", "website", "dashboard", "report",
+        "reports", "database", "message", "messages", "portal"
+    ]
 
     /// True if `candidate` and `phrase` are effectively the same text — an exact match, or one
     /// contains the other and the shorter side accounts for at least 80% of the longer side's
@@ -711,19 +952,20 @@ actor AIService {
         case .narrow:
             return "Pick the one part of this that feels least clear, and write a sentence about just that."
         case .clarify:
-            return "Write one sentence finishing 'The thing I'm really stuck on is…' and then stop."
+            return "Write one sentence finishing 'The thing I'm really stuck on is…'"
         }
     }
 
-    /// The even-smaller step revealed by "I'm still stuck" — always deterministic.
+    /// The even-smaller step kept as the record's fallback text — always deterministic.
+    /// (No "then stop" anywhere: telling an already-stuck user to stop read as limiting.)
     private func smallerFallbackStep(for mode: StuckMode) -> String {
         switch mode {
         case .reproduce:
-            return "Write one sentence about what you tried, then stop."
+            return "Write one sentence about what you tried."
         case .narrow:
-            return "Name the one piece you're least sure about, then stop."
+            return "Name the one piece you're least sure about."
         case .clarify:
-            return "Write 'I'm stuck because…' and stop."
+            return "Write one sentence starting 'I'm stuck because…'"
         }
     }
 }

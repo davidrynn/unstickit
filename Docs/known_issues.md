@@ -91,6 +91,23 @@ Principle revision note):
 Repair-retry, gate diagnostics, and deterministic fallbacks are unchanged. Same simulator
 verification limits as above — needs an on-device run to confirm step quality.
 
+**Follow-up (2026-07-15, third device session): invented-artifact gate + Stage 1 hygiene.**
+Three identical reruns of the overwhelm dump each produced "Open the business promotion
+spreadsheet…" — no such spreadsheet exists, and at temperature 0.5 the pipeline is effectively
+deterministic, so "Delete & start over" replays the same hallucination verbatim. Prompt rules
+against invented artifacts were already present and ignored (the model quotes the instructions'
+surface, not their meaning), so the class is now enforced in code:
+1. **`StepValidationFailure.inventedArtifact`**: a step naming a known artifact noun (document,
+   spreadsheet, email, form, file…) absent from the user's own words is rejected — unless framed
+   as a fresh creation ("a new/blank X"). Applies to first-pass generation (grounded against the
+   dump) and the slot-fill retry (dump + correction). Rejection → targeted repair → template, so
+   the deterministic rerun loop now lands on the honest fallback instead of the same invention.
+2. **Stage 1 contract enforcement in code** (same session showed the model stitching
+   `goalSummary` + `frictionSummary` into a two-sentence `summary` and emitting a duplicate
+   blocker with a stray newline): `cleanedBlockers` trims/dedupes (≥80% overlap) and
+   `enforcedDisplaySummary` cuts a multi-sentence summary to its first sentence.
+Covered by new gate/hygiene tests using the session's output verbatim as fixtures.
+
 ### 4. Keyboard obscures the text field on some iPhones
 **Reported:** 2026-07-13 — **reproduced 2026-07-14 on an iPhone SE (3rd gen) / iOS 26.5 simulator;
 brain dump screen fixed and verified same day. Still open only for the `RecentStepsView` editor
@@ -227,6 +244,25 @@ statements. POC now in place (committed on top of `8b70b51`, revert to that to c
 To evaluate on device: same brain dump; expect options like "I am very disappointed with the
 app's performance / I don't know what to do next / The name of the app is incorrect," and after
 tapping the name option, a Stage 3 step about the name specifically.
+
+### 6. Ticket: link the Clear Next Step custom GPT from the info page
+**Filed:** 2026-07-15 — feature, small. Not started.
+
+Add a quiet link on the About/info page (`AboutView.swift`, reached via the info button on
+the brain-dump screen) to the companion custom GPT, so users can try the same flow on a
+full-size LLM:
+
+- **URL:** <https://chatgpt.com/g/g-69c70cfdb3d48191a63d67edb52b3cee-clear-next-step>
+- **Copy (suggested):** "Want to try this on a full LLM on the web?" — tune to
+  `copy_principles.md` tone (calm, no hype).
+- Render as a secondary `Link` (per [[keep-secondary-affordances-quiet]] — it must not
+  compete with the app's own flow).
+
+Resolve when implementing:
+1. **App Review framing:** reviewers can be picky about linking out to a web version of the
+   same functionality — frame as a companion/experiment, not "the better version."
+2. **Privacy:** the app ships "Data Not Collected" / on-device only; add a one-line note
+   near the link that the GPT runs on OpenAI's servers under a separate privacy policy.
 
 ## Resolved / not a bug
 

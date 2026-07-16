@@ -238,6 +238,14 @@ The step must:
 - be the **first real move on their actual task**, startable right now
 - be one or two short sentences, at most ~30 words, starting with an action verb
 - name a specific thing from *their* situation (their form, their file, their phone call)
+- **never reference an artifact they didn't mention** (a "planning document", an email, a
+  tool) — if the thing they need doesn't exist yet, the step is to *create its smallest
+  first piece*, not to open it (observed failures, 2026-07-15: "open the ballet lesson
+  planning document", "open the business promotion spreadsheet" — both invented). Prompt
+  rules alone did not stop this, so it is **enforced in code**:
+  `AIService.validationFailure` rejects steps naming artifact nouns (document, spreadsheet,
+  email, form…) absent from the user's own words, unless framed as a fresh creation
+  ("a new/blank X"). Rejection routes to the targeted repair, then the template.
 - not attempt to solve the underlying problem or prescribe a multi-step plan
 
 ### Critical Constraint
