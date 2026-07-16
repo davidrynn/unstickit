@@ -3,7 +3,7 @@ import SwiftUI
 /// Data-driven destinations for the app's SwiftUI `NavigationStack`.
 enum AppDestination: Hashable {
     case reflectionChoice(extraction: ExtractionResult, clarification: ClarificationResult?, brainDump: String)
-    case nextStep(NextStepResult, brainDump: String)
+    case nextStep(NextStepResult, brainDump: String, context: NextStepContext)
 }
 
 extension ExtractionResult: Hashable {

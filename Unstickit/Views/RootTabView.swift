@@ -72,10 +72,11 @@ private extension View {
                     nav: nav,
                     sessionLog: sessionLog
                 )
-            case .nextStep(let result, let brainDump):
+            case .nextStep(let result, let brainDump, let context):
                 NextStepView(
                     result: result,
                     brainDump: brainDump,
+                    context: context,
                     store: store
                 )
             }

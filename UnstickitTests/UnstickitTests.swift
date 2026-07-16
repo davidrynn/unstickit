@@ -282,21 +282,82 @@ struct DeferredStepTests {
 
 @MainActor
 struct NextStepModelTests {
-    private func model(store: RecommendedStepStore) -> NextStepModel {
+    private func model(
+        store: RecommendedStepStore,
+        regenerator: NextStepModel.Regenerator? = nil
+    ) -> NextStepModel {
         NextStepModel(
             result: NextStepResult(nextStep: "Step text", fallbackStep: "Smaller step"),
             brainDump: "I'm stuck.",
-            store: store
+            context: NextStepContext(summary: "s", mode: .narrow, optionLabel: "o"),
+            store: store,
+            regenerator: regenerator
         )
     }
 
-    @Test func stillStuckRevealsSmallerStep() {
-        let m = model(store: makeStore())
-        #expect(m.fallbackRevealed == false)
+    // "Did this help?" → "Not quite" → "Try again" (did_this_help_spec.md)
 
-        // Reveal-only now — surfaces the smaller step, never restarts the flow.
-        m.revealSmallerStep()
-        #expect(m.fallbackRevealed == true)
+    @Test func tryAgainReplacesStepInPlaceAndRerecords() async {
+        let store = makeStore()
+        let m = model(store: store) { _, _, _, _ in
+            NextStepResult(nextStep: "A different step.", fallbackStep: "f")
+        }
+        m.recordSession()
+
+        await m.tryAgain()
+
+        #expect(m.nextStep == "A different step.")
+        #expect(m.regenerationCount == 1)
+        // The open-loop record follows the visible step — still exactly one.
+        #expect(store.activeSteps.count == 1)
+        #expect(store.activeSteps.first?.text == "A different step.")
+    }
+
+    @Test func tryAgainPassesRejectedStepAndTrimmedFeedback() async {
+        var captured: (rejected: String, feedback: String?)?
+        let m = model(store: makeStore()) { _, _, rejected, feedback in
+            captured = (rejected, feedback)
+            return NextStepResult(nextStep: "n", fallbackStep: "f")
+        }
+        m.feedbackText = "  it's ballet lessons, not a piece  "
+
+        await m.tryAgain()
+
+        #expect(captured?.rejected == "Step text")
+        #expect(captured?.feedback == "it's ballet lessons, not a piece")
+        // Consumed: the field resets and the expansion collapses for the fresh step.
+        #expect(m.feedbackText.isEmpty)
+        #expect(m.feedbackExpanded == false)
+    }
+
+    @Test func tryAgainSendsNilForEmptyFeedback() async {
+        var captured: String? = "sentinel"
+        let m = model(store: makeStore()) { _, _, _, feedback in
+            captured = feedback
+            return NextStepResult(nextStep: "n", fallbackStep: "f")
+        }
+        m.feedbackText = "   "
+
+        await m.tryAgain()
+
+        #expect(captured == nil)
+    }
+
+    @Test func tryAgainCapsAtTwoAttempts() async {
+        var calls = 0
+        let m = model(store: makeStore()) { _, _, _, _ in
+            calls += 1
+            return NextStepResult(nextStep: "n\(calls)", fallbackStep: "f")
+        }
+
+        await m.tryAgain()
+        await m.tryAgain()
+        #expect(m.canTryAgain == false)
+
+        // A third attempt is a no-op — the UI shows the edit nudge instead.
+        await m.tryAgain()
+        #expect(calls == 2)
+        #expect(m.regenerationCount == 2)
     }
 
     @Test func recordSessionPersistsOneSilentOpenLoop() {
@@ -382,7 +443,9 @@ struct AppNavigationTests {
         let nav = AppNavigation()
         nav.selectedTab = .saved
         nav.unstickPath.append(AppDestination.nextStep(
-            NextStepResult(nextStep: "s", fallbackStep: "f"), brainDump: "d"
+            NextStepResult(nextStep: "s", fallbackStep: "f"),
+            brainDump: "d",
+            context: NextStepContext(summary: "s", mode: .narrow, optionLabel: "o")
         ))
         nav.savedPath.append("anything")
 
@@ -561,6 +624,70 @@ struct GenericOptionLabelTests {
     }
 }
 
+// MARK: - POC: blocker-derived options (known_issues.md #5)
+
+struct BlockerDerivedOptionsTests {
+    // Fixtures mirror a real session's Stage 1 output (known_issues.md #5).
+    private let extraction = ExtractionResult(
+        isActionable: true,
+        clarificationPrompt: nil,
+        goalSummary: "You want to fix the issues with your app and improve its quality.",
+        blockers: [
+            Blocker(description: "You are very disappointed with the app's performance.", type: .emotional),
+            Blocker(description: "You don't know what to do next.", type: .informational),
+            Blocker(description: "The name of the app is incorrect.", type: .practical)
+        ],
+        frictionSummary: "Feeling overwhelmed by the problems with your app.",
+        summary: "You want to fix your app, but you're overwhelmed and unsure how to proceed."
+    )
+
+    @Test func derivesOneOptionPerBlockerWithImpliedModes() {
+        let result = ClarificationResult.derived(from: extraction)
+        #expect(result.options.count == 3)
+        #expect(result.options.map(\.mode) == [.clarify, .narrow, .narrow])
+    }
+
+    @Test func derivedLabelsAreRecastToFirstPerson() {
+        let labels = ClarificationResult.derived(from: extraction).options.map(\.label)
+        #expect(labels == [
+            "I am very disappointed with the app's performance.",
+            "I don't know what to do next.",
+            "The name of the app is incorrect."
+        ])
+    }
+
+    @Test func derivesNoOptionsWhenExtractionHasNoBlockers() {
+        var empty = extraction
+        empty.blockers = []
+        #expect(ClarificationResult.derived(from: empty).options.isEmpty)
+    }
+
+    @Test func recastHandlesContractionsAndPossessives() {
+        #expect(ClarificationResult.firstPersonLabel(from: "You're unsure about your next release.")
+                == "I'm unsure about my next release.")
+    }
+
+    @Test func recastHandlesCurlyApostrophes() {
+        #expect(ClarificationResult.firstPersonLabel(from: "You\u{2019}re stuck on the name.")
+                == "I'm stuck on the name.")
+    }
+
+    @Test func recastCapitalizesALeadingSwappedWord() {
+        #expect(ClarificationResult.firstPersonLabel(from: "Your app's name feels wrong.")
+                == "My app's name feels wrong.")
+    }
+
+    @Test func recastLeavesImpersonalTextUnchanged() {
+        #expect(ClarificationResult.firstPersonLabel(from: "The name of the app is incorrect.")
+                == "The name of the app is incorrect.")
+    }
+
+    @Test func recastDoesNotClipWordsContainingYou() {
+        #expect(ClarificationResult.firstPersonLabel(from: "The young startup needs a name.")
+                == "The young startup needs a name.")
+    }
+}
+
 // MARK: - Session log (session_log_spec.md)
 
 @MainActor
@@ -609,7 +736,9 @@ struct AppDestinationTests {
             extraction: extraction, clarification: clarification, brainDump: "d"
         )
         let step = AppDestination.nextStep(
-            NextStepResult(nextStep: "s", fallbackStep: "f"), brainDump: "d"
+            NextStepResult(nextStep: "s", fallbackStep: "f"),
+            brainDump: "d",
+            context: NextStepContext(summary: "s", mode: .narrow, optionLabel: "o")
         )
         #expect(choice != step)
 

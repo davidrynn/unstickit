@@ -178,6 +178,7 @@ actor AIService {
             │
             │ RESULT:
             │   isActionable: \(result.isActionable)
+            │   clarificationPrompt: \(result.clarificationPrompt ?? "nil")
             │   goalSummary: \(result.goalSummary)
             │   blockers:
             \(result.blockers.map { "│     [\($0.type.rawValue)] \($0.description)" }.joined(separator: "\n"))
@@ -407,6 +408,7 @@ actor AIService {
 
         ┌─ STAGE 3: NEXT STEP ───────────────────────────────
         │ SELECTED MODE: \(selectedMode.rawValue)
+        │ SELECTED OPTION: \(selectedOptionLabel)
         │ SOURCE: \(generated == nil ? "fallback template" : "generated")
         │
         │ RESULT:
@@ -419,22 +421,83 @@ actor AIService {
         return result
     }
 
+    /// Regenerate the step after the user answered "Not quite" (did_this_help_spec.md).
+    /// The rejected step — and the user's optional correction, which overrides anything
+    /// previously inferred — are folded into the prompt. Best-effort like
+    /// `generateNextStep`: any failure falls back to the deterministic template, so the
+    /// user always gets a fresh step rather than an error.
+    func regenerateNextStep(
+        context: NextStepContext,
+        brainDump: String,
+        rejectedStep: String,
+        feedback: String?
+    ) async -> NextStepResult {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UI_MOCK_AI"] == "1" {
+            try? await Task.sleep(for: .seconds(1.5))
+            return NextStepResult(
+                nextStep: "Open the one screen that bothers you most and note the first thing that looks off.",
+                fallbackStep: smallerFallbackStep(for: context.mode)
+            )
+        }
+        #endif
+        let generated = await generateActivationStep(
+            mode: context.mode,
+            brainDump: brainDump,
+            summary: context.summary,
+            optionLabel: context.optionLabel,
+            rejection: (step: rejectedStep, feedback: feedback)
+        )
+        let result = NextStepResult(
+            nextStep: generated ?? fallbackStep(for: context.mode),
+            fallbackStep: smallerFallbackStep(for: context.mode)
+        )
+        #if DEBUG
+        print("""
+
+        ┌─ STAGE 3: NEXT STEP (RETRY) ───────────────────────
+        │ REJECTED: \(rejectedStep)
+        │ FEEDBACK: \(feedback ?? "none")
+        │ SOURCE: \(generated == nil ? "fallback template" : "generated")
+        │
+        │ RESULT:
+        │   nextStep: \(result.nextStep)
+        └────────────────────────────────────────────────────
+        """)
+        #endif
+        return result
+    }
+
     /// Best-effort generation of the activation step. Returns `nil` (so the caller uses a
     /// template) on any failure, refusal, or output that still fails validation after one
-    /// targeted repair attempt.
+    /// targeted repair attempt. `rejection` carries a previously rejected step (plus the
+    /// user's optional correction) on a "Not quite" retry.
     private func generateActivationStep(
         mode: StuckMode,
         brainDump: String,
         summary: String,
-        optionLabel: String
+        optionLabel: String,
+        rejection: (step: String, feedback: String?)? = nil
     ) async -> String? {
         let session = LanguageModelSession()
+        var rejectionBlock = ""
+        if let rejection {
+            let feedbackLine = rejection.feedback.map {
+                " They corrected you: \"\($0)\" — their correction overrides anything you inferred before."
+            } ?? ""
+            rejectionBlock = """
+
+
+            You already suggested: "\(rejection.step)" — they said it did not help.\(feedbackLine) \
+            Write a completely different first action; do not repeat or rephrase that suggestion.
+            """
+        }
         let prompt = """
         Someone is stuck and needs one simple, concrete first action to get moving again.
 
         Their situation: \(brainDump)
         What you reflected back to them: \(summary)
-        How they say they're stuck: "\(optionLabel)"
+        How they say they're stuck: "\(optionLabel)"\(rejectionBlock)
 
         \(Self.modeGuidance(mode))
 

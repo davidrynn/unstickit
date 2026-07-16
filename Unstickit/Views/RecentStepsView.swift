@@ -263,12 +263,13 @@ private struct RecentStepDetailView: View {
                     errorMessage = extraction.clarificationPrompt ?? "Add a little more context before continuing."
                     return
                 }
-                // If clarification fails, the combined screen still shows the summary and
-                // offers a retry (T7) — don't dead-end here.
-                let clarification = try? await AIService.shared.clarify(
-                    extraction: extraction,
-                    brainDump: context
-                )
+                // POC (known_issues.md #5): options derived from the Stage 1 blockers,
+                // mirroring BrainDumpView; model generation only as fallback. If that also
+                // fails, the combined screen offers a retry (T7) — don't dead-end here.
+                let derived = ClarificationResult.derived(from: extraction)
+                let clarification = derived.options.isEmpty
+                    ? try? await AIService.shared.clarify(extraction: extraction, brainDump: context)
+                    : derived
                 // Non-animated push so the loader hides the navigation entirely
                 // (cleared by ReflectionChoiceView.onAppear).
                 nav.pushBehindLoader(

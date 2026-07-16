@@ -97,6 +97,73 @@ struct ClarificationResult {
     var options: [ClarificationOption]
 }
 
+// MARK: - POC: blocker-derived options (known_issues.md #5)
+
+extension ClarificationResult {
+    /// POC alternative to the Stage 2 model call: the tappable options ARE the Stage 1
+    /// blockers, recast to first person, so every option is grounded in something the user
+    /// actually wrote — the generated options repeatedly came back as prompt echoes instead.
+    /// Stage 3 guidance is selected via `BlockerType.impliedMode`. The generated-options path
+    /// (`AIService.clarify`) remains reachable behind "Something else" and as the fallback
+    /// when extraction returned no blockers.
+    static func derived(from extraction: ExtractionResult) -> ClarificationResult {
+        ClarificationResult(options: extraction.blockers.map {
+            ClarificationOption(
+                label: firstPersonLabel(from: $0.description),
+                mode: $0.type.impliedMode
+            )
+        })
+    }
+
+    /// Stage 1 writes blockers in second person ("You don't know what to do next"); a
+    /// tappable identify-with statement reads in first person ("I don't know what to do
+    /// next"). Plain word-boundary pronoun swap — POC-grade, not a grammar engine; text
+    /// with no second-person pronouns ("The name of the app is incorrect") passes through
+    /// unchanged, which already reads fine as an option.
+    static func firstPersonLabel(from secondPerson: String) -> String {
+        // Normalize curly apostrophes so one pattern set matches model output either way.
+        var result = secondPerson.replacingOccurrences(of: "\u{2019}", with: "'")
+        // Longest-first so "you're"/"yourself" aren't clipped by the "you"/"your" swaps.
+        let swaps: [(String, String)] = [
+            ("you're", "I'm"),
+            ("you are", "I am"),
+            ("you've", "I've"),
+            ("you'll", "I'll"),
+            ("you'd", "I'd"),
+            ("yourself", "myself"),
+            ("yours", "mine"),
+            ("your", "my"),
+            ("you", "I")
+        ]
+        for (second, first) in swaps {
+            result = result.replacingOccurrences(
+                of: "\\b\(second)\\b",
+                with: first,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        // A swap can leave a lowercase word at the start ("my app's name is wrong").
+        if let firstChar = result.first, firstChar.isLowercase {
+            result = result.prefix(1).uppercased() + result.dropFirst()
+        }
+        return result
+    }
+}
+
+extension BlockerType {
+    /// Which kind of Stage 3 guidance a blocker of this type calls for when the user taps it
+    /// as their option (POC: blocker-as-options). A concrete obstacle or an unclear path both
+    /// want the narrow guidance (first move on the most concrete piece); emotional friction
+    /// wants clarify (first move on the most pressing thing). No blocker type implies
+    /// `reproduce` — it stays reachable only via the generated "Something else" set.
+    var impliedMode: StuckMode {
+        switch self {
+        case .practical, .informational: return .narrow
+        case .emotional: return .clarify
+        }
+    }
+}
+
 // MARK: - Stage 3: Next Step Generation
 
 /// The model-generated activation step. Guided to be the first real, concrete move on the
@@ -109,9 +176,19 @@ struct ActivationStep {
 }
 
 /// The next-step payload shown on S3. `nextStep` is model-generated when possible,
-/// otherwise a safe template; `fallbackStep` (the "I'm still stuck" smaller step) is
-/// always a deterministic template.
+/// otherwise a safe template; `fallbackStep` is a deterministic template kept as the
+/// worst-case replacement when a "Not quite" regeneration fails (did_this_help_spec.md —
+/// it is no longer a user-facing reveal).
 struct NextStepResult {
     var nextStep: String
     var fallbackStep: String
+}
+
+/// The Stage 3 inputs carried alongside a generated step so it can be regenerated when
+/// the user answers "Not quite" on the next-step screen (did_this_help_spec.md) — the
+/// same inputs `generateNextStep` used, minus the rejected output itself.
+struct NextStepContext: Hashable {
+    var summary: String
+    var mode: StuckMode
+    var optionLabel: String
 }

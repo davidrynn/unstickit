@@ -92,7 +92,10 @@ struct ReflectionChoiceView: View {
             // Non-animated push so the loader hides the navigation entirely
             // (cleared by NextStepView.onAppear).
             didPushNext = true
-            nav.pushBehindLoader(.nextStep(step, brainDump: brainDump), path: $path)
+            nav.pushBehindLoader(
+                .nextStep(step.result, brainDump: brainDump, context: step.context),
+                path: $path
+            )
             model.clearGeneratedStep()
         }
         // Safety net: if this screen goes away without having pushed the next step

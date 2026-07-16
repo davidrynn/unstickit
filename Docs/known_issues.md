@@ -208,6 +208,26 @@ dump to confirm grounded options and no invented blockers. Deeper product questi
 addressed: all three StuckModes assume mid-work stuckness; post-release disappointment ("shipped
 it, unhappy with it") doesn't map cleanly to any mode.
 
+**POC (2026-07-15, second session): blocker-as-options.** A rerun with the fixes still produced
+no grounded Stage 2 set (4 attempts across 2 sessions, 0 good sets — the guard caught two echoes
+including an example-swap, but a synonym-swap echo slipped under the 80% threshold and the
+best-effort path shipped it). Meanwhile Stage 1's blockers *were* the grounded "how I'm stuck"
+statements. POC now in place (committed on top of `8b70b51`, revert to that to compare):
+- The tappable options ARE the Stage 1 blockers, recast to first person
+  (`ClarificationResult.derived(from:)` / `firstPersonLabel(from:)` in `AITypes.swift`); Stage 3
+  guidance picked via `BlockerType.impliedMode` (practical/informational → narrow, emotional →
+  clarify; reproduce unreachable from derived options).
+- The generated-options model call remains behind **"Something else"**, as the retry path, and
+  as the fallback when extraction returns no blockers.
+- Also fixed: `isActionable=false` with a missing/empty `clarificationPrompt` was a silent no-op
+  on the dump screen (observed this session — first extraction returned false with everything
+  *except* the prompt filled, and the tap appeared to do nothing, prompting a resubmit); now
+  falls back to a default question. Stage 1 debug print now includes `clarificationPrompt`.
+- Covered by `BlockerDerivedOptionsTests`.
+To evaluate on device: same brain dump; expect options like "I am very disappointed with the
+app's performance / I don't know what to do next / The name of the app is incorrect," and after
+tapping the name option, a Stage 3 step about the name specifically.
+
 ## Resolved / not a bug
 
 ### 3. Completed sessions don't appear in the "Recent" tab

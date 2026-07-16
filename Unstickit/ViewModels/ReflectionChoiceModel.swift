@@ -8,13 +8,21 @@ import Combine
 /// `.onAppear`, so returning to this screen (e.g. after a tab switch) never re-analyzes.
 /// Extraction + clarification are produced before this screen appears (see T5); if
 /// clarification failed, `clarification` is nil and the screen offers a retry (T7).
+/// One-shot navigation payload for a successful Stage 3 generation: the step plus the
+/// context needed to regenerate it if the user answers "Not quite" on the next screen
+/// (did_this_help_spec.md).
+struct GeneratedStep: Equatable {
+    let result: NextStepResult
+    let context: NextStepContext
+}
+
 @MainActor
 final class ReflectionChoiceModel: ObservableObject {
     @Published private(set) var options: [ClarificationOption]
     /// True when the option set is missing because clarification generation failed.
     @Published private(set) var optionsFailed: Bool
     @Published private(set) var rerollCount = 0
-    @Published private(set) var generatedStep: NextStepResult?
+    @Published private(set) var generatedStep: GeneratedStep?
     @Published var errorMessage: String?
     /// Guards against a second AI call while one is in flight (e.g. a double-tap).
     @Published private(set) var isBusy = false
@@ -54,11 +62,19 @@ final class ReflectionChoiceModel: ObservableObject {
     /// the next screen is on-screen, so the loader stays up through the transition.
     func select(_ option: ClarificationOption) {
         run(message: "Generating your next step...", clearLoaderOnSuccess: false) {
-            self.generatedStep = try await AIService.shared.generateNextStep(
+            let result = try await AIService.shared.generateNextStep(
                 extraction: self.extraction,
                 selectedMode: option.mode,
                 brainDump: self.brainDump,
                 selectedOptionLabel: option.label
+            )
+            self.generatedStep = GeneratedStep(
+                result: result,
+                context: NextStepContext(
+                    summary: self.extraction.summary,
+                    mode: option.mode,
+                    optionLabel: option.label
+                )
             )
             self.recordResolvedSession(chosenMode: option.mode)
         }

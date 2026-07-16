@@ -238,6 +238,11 @@ struct BrainDumpView: View {
         errorMessage = nil
     }
 
+    /// Shown for a too-short dump, and as the fallback when the model marks the input
+    /// not-actionable but omits its own clarifying question.
+    private static let defaultClarificationPrompt =
+        "Tell me a bit more — what are you working on, and what's making it hard to move forward?"
+
     private func submit() {
         guard !trimmedDraft.isEmpty else { return }
         // Reentry guard: a fast double-tap could fire submit twice before the button
@@ -247,7 +252,7 @@ struct BrainDumpView: View {
 
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
         if wordCount < 4 {
-            clarificationPrompt = "Tell me a bit more — what are you working on, and what's making it hard to move forward?"
+            clarificationPrompt = Self.defaultClarificationPrompt
             return
         }
 
@@ -271,17 +276,22 @@ struct BrainDumpView: View {
 
                 guard extraction.isActionable else {
                     nav.loadingMessage = nil
-                    clarificationPrompt = extraction.clarificationPrompt
+                    // The model sometimes returns isActionable=false without filling
+                    // clarificationPrompt — never leave the tap a silent no-op.
+                    clarificationPrompt = extraction.clarificationPrompt.flatMap {
+                        $0.isEmpty ? nil : $0
+                    } ?? Self.defaultClarificationPrompt
                     return
                 }
 
-                // Hold the loader through clarification. If it fails (but extraction
-                // succeeded), still advance to the choice screen with the summary and
-                // let that screen offer a retry — don't dead-end on the dump.
-                let clarification = try? await AIService.shared.clarify(
-                    extraction: extraction,
-                    brainDump: trimmed
-                )
+                // POC (known_issues.md #5): the options are the Stage 1 blockers — already
+                // grounded in the user's words — not a second model call. Generation
+                // remains the fallback if extraction produced no blockers; if that also
+                // fails, the choice screen offers a retry — don't dead-end on the dump.
+                let derived = ClarificationResult.derived(from: extraction)
+                let clarification = derived.options.isEmpty
+                    ? try? await AIService.shared.clarify(extraction: extraction, brainDump: trimmed)
+                    : derived
                 // Non-animated push so the loader hides the navigation entirely
                 // (cleared by ReflectionChoiceView.onAppear).
                 nav.pushBehindLoader(
